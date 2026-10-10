@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f8f6">
+  <meta name="description" content="OpsPilot investigates incidents with scoped operational evidence and keeps every remediation behind independent human approval and server verification.">
+  <title>OpsPilot — Find the cause. Keep control.</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/intro.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="OpsPilot introduction">
+      <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+      <span>opspilot</span>
+    </a>
+    <nav class="site-nav" aria-label="Introduction">
+      <a href="#workflow">How it works</a>
+      <a href="#safety">Safety model</a>
+      <a href="#demo">Watch the demo</a>
+    </nav>
+    <a class="button button-small" href="/console">Get started <span aria-hidden="true">↗</span></a>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="eyebrow-mark" aria-hidden="true"></span> INCIDENT INTELLIGENCE, UNDER CONTROL</p>
+        <h1 id="hero-title">Find the cause.<br><span>Keep control.</span></h1>
+        <p class="hero-lede">OpsPilot turns scattered incident signals into an evidence-backed investigation—and keeps every operational change behind a second human and a verified result.</p>
+        <div class="hero-actions">
+          <a class="button" href="/console">Get started <span aria-hidden="true">↗</span></a>
+          <a class="button-quiet" href="#workflow">See how it works <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="hero-boundary"><span aria-hidden="true">◉</span> Local-first replay <i></i> Synthetic evidence <i></i> No production access</div>
+      </div>
+
+      <aside class="incident-preview" aria-label="Illustrative preview of a seeded local incident">
+        <div class="preview-chrome">
+          <span class="preview-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="preview-route">opspilot <b>/</b> investigation</span>
+          <span class="preview-mode"><i aria-hidden="true"></i> SEEDED REPLAY</span>
+        </div>
+        <div class="preview-body">
+          <div class="preview-kicker"><span>SCN-001</span><span>ILLUSTRATIVE · LOCAL SIMULATION</span></div>
+          <h2>Peak traffic alert <span>· Checkout API</span></h2>
+          <p class="preview-summary">Traffic rose before the first failed requests.</p>
+
+          <div class="signal-grid" aria-label="Seeded case evidence: all 32 database connections were occupied, with an acquisition wait of 1.84 seconds">
+            <div class="signal-card">
+              <span class="signal-label">DATABASE POOL</span>
+              <strong>32<span>/32</span></strong>
+              <small>connections occupied</small>
+              <div class="signal-meter" aria-hidden="true"><i></i></div>
+            </div>
+            <div class="signal-card signal-wait">
+              <span class="signal-label">ACQUISITION WAIT</span>
+              <strong>1.84<span>s</span></strong>
+              <small>before request failure</small>
+              <svg class="signal-chart" viewBox="0 0 148 25" role="img" aria-label="Illustrative rising latency trace">
+                <path class="chart-fill" d="M0 22 16 20 31 21 46 17 60 18 76 14 91 16 106 9 121 11 136 3 148 5V25H0Z"/>
+                <path class="chart-line" d="m0 22 16-2 15 1 15-4 14 1 16-4 15 2 15-7 15 2 15-8 12 2"/>
+              </svg>
+            </div>
+          </div>
+
+          <div class="evidence-row">
+            <span class="evidence-icon" aria-hidden="true">↳</span>
+            <span><strong>Checkout → database</strong><small>Metric + trace correlation</small></span>
+            <span class="evidence-count">3 sources</span>
+          </div>
+          <div class="cause-row">
+            <span class="cause-check" aria-hidden="true">✓</span>
+            <span><small>SUPPORTED CAUSE</small><strong>Connection pool exhaustion</strong></span>
+            <span class="cause-score">Evidence-linked</span>
+          </div>
+          <div class="approval-row">
+            <span class="approval-lock" aria-hidden="true">⌑</span>
+            <span><small>THEN, AND ONLY THEN</small><strong>Independent approval → verified recovery</strong></span>
+            <span class="approval-state">HUMAN GATE</span>
+          </div>
+        </div>
+        <div class="preview-foot"><span>Seeded scenario preview</span><span>Not live telemetry</span></div>
+      </aside>
+    </section>
+
+    <section class="trust-strip" aria-label="OpsPilot operating principles">
+      <div class="wrap trust-items">
+        <span><b aria-hidden="true">01</b> Read-only investigation</span>
+        <span><b aria-hidden="true">02</b> Evidence-linked diagnosis</span>
+        <span><b aria-hidden="true">03</b> Independent approval</span>
+        <span><b aria-hidden="true">04</b> Server-verified recovery</span>
+      </div>
+    </section>
+
+    <section class="workflow-section wrap" id="workflow" aria-labelledby="workflow-title">
+      <div class="section-intro">
+        <p class="eyebrow">A BETTER WAY THROUGH AN INCIDENT</p>
+        <h2 id="workflow-title">From first signal<br>to verified recovery.</h2>
+        <p>Each step leaves a record. The investigator gathers evidence and explains its reasoning; people retain authority over change.</p>
+      </div>
+      <div class="workflow-list">
+        <article class="workflow-step">
+          <span class="step-index">01</span><div><h3>Bring the signal together</h3><p>Start with an incident or controlled replay. Keep logs, metrics, traces and changes in the incident’s scope.</p></div><span class="step-symbol" aria-hidden="true">⌁</span>
+        </article>
+        <article class="workflow-step">
+          <span class="step-index">02</span><div><h3>Test the possible causes</h3><p>Compare competing explanations against observed evidence. See what supports a cause—and what remains uncertain.</p></div><span class="step-symbol" aria-hidden="true">⌕</span>
+        </article>
+        <article class="workflow-step workflow-gated">
+          <span class="step-index">03</span><div><h3>Put a human at the action boundary</h3><p>Recommendations use typed, allowlisted actions. A different approver reviews the exact proposal before an operator can run it.</p></div><span class="step-symbol" aria-hidden="true">⌑</span>
+        </article>
+        <article class="workflow-step">
+          <span class="step-index">04</span><div><h3>Verify, then close the loop</h3><p>Server-owned checks decide whether symptoms cleared. Preserve the approval, execution and result in the incident record.</p></div><span class="step-symbol" aria-hidden="true">✓</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="safety-band" id="safety" aria-labelledby="safety-title">
+      <div class="wrap safety-content">
+        <div class="safety-mark" aria-hidden="true"><span></span><span></span></div>
+        <div><p class="eyebrow">BUILT AROUND A CLEAR BOUNDARY</p><h2 id="safety-title">An AI recommendation<br>is never permission.</h2><p>Investigation is read-only. Remediation stays in an isolated local simulator, behind a separate approver, with recovery determined by server-side checks.</p></div>
+        <div class="safety-stamp"><span>CONTROLLED</span><strong>LOCAL LAB</strong><small>Synthetic data only</small></div>
+      </div>
+    </section>
+
+    <section class="demo-section wrap" id="demo" aria-labelledby="demo-title">
+      <div class="demo-heading"><div><p class="eyebrow">SEE THE WORKFLOW</p><h2 id="demo-title">A signal. A supported cause.<br>A person in control.</h2></div><p>A short walkthrough of the seeded Checkout API replay, from first evidence to server-verified recovery.</p></div>
+      <div class="video-frame">
+        <video controls preload="metadata" poster="/demo-poster.svg" aria-label="OpsPilot product walkthrough with captions">
+          <source src="/demo.webm" type="video/webm">
+          <track kind="captions" src="/demo-captions.vtt" srclang="en" label="English" default>
+          Your browser does not support WebM playback. <a href="/demo.webm">Download the OpsPilot demo video</a>.
+        </video>
+        <div class="video-caption"><span><i aria-hidden="true"></i> CONTROLLED REPLAY</span><span>SCN-001 · Checkout API</span><span>~85 seconds</span></div>
+      </div>
+      <div class="demo-note"><span aria-hidden="true">ⓘ</span> This demonstration uses synthetic, seeded evidence in a local simulator. It is not a claim about production telemetry or live infrastructure.</div>
+    </section>
+
+    <section class="closing wrap" aria-labelledby="closing-title">
+      <p class="eyebrow">EVIDENCE FIRST. ACTION UNDER HUMAN CONTROL.</p>
+      <h2 id="closing-title">See how OpsPilot handles<br>an incident from end to end.</h2>
+      <a class="button" href="/console">Get started <span aria-hidden="true">↗</span></a>
+    </section>
+  </main>
+
+  <footer class="site-footer"><div class="wrap footer-content"><a class="brand brand-footer" href="/" aria-label="OpsPilot home"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span><span>opspilot</span></a><span>Local incident intelligence · Synthetic replay · Human-governed action</span><a href="/console">Open console <span aria-hidden="true">↗</span></a></div></footer>
+</body>
+</html>

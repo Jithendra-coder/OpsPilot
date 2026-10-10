@@ -1,0 +1,253 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="2160" viewBox="0 0 2400 2160" role="img" aria-labelledby="title desc">
+  <title id="title">OpsPilot end-to-end incident investigation and controlled action flow</title>
+  <desc id="desc">Operator request, sequential LangGraph reads, deterministic diagnosis, optional model review, persisted result, and separately approved simulator remediation.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1,1 L11,6 L1,11 Z" fill="#4263EB"/></marker>
+    <marker id="arrowTeal" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1,1 L11,6 L1,11 Z" fill="#0F8B8D"/></marker>
+    <marker id="arrowAmber" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1,1 L11,6 L1,11 Z" fill="#C77812"/></marker>
+    <marker id="arrowRed" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1,1 L11,6 L1,11 Z" fill="#C44C55"/></marker>
+    <style>
+      text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#14213D}
+      .title{font-size:47px;font-weight:750;letter-spacing:-1.2px}
+      .sub{font-size:22px;fill:#53627A}
+      .eyebrow{font-size:15px;font-weight:750;letter-spacing:1.8px;fill:#52617A}
+      .section{font-size:22px;font-weight:750}
+      .cardtitle{font-size:21px;font-weight:720}
+      .body{font-size:18px;fill:#394861}
+      .small{font-size:16px;fill:#53627A}
+      .tiny{font-size:14px;fill:#5C6A82}
+      .chip{font-size:14px;font-weight:750;letter-spacing:.5px}
+      .card{fill:#FFFFFF;stroke:#D8E0EC;stroke-width:2}
+      .softslate{fill:#F6F8FB;stroke:#DBE2EC;stroke-width:2}
+      .softblue{fill:#F2F6FF;stroke:#CBD8FF;stroke-width:2}
+      .softteal{fill:#EFFAFA;stroke:#BCE5E2;stroke-width:2}
+      .softamber{fill:#FFF8EB;stroke:#F0D6A4;stroke-width:2}
+      .softred{fill:#FFF3F3;stroke:#F1C8CA;stroke-width:2}
+      .line{fill:none;stroke:#4263EB;stroke-width:3;marker-end:url(#arrow)}
+      .lineTeal{fill:none;stroke:#0F8B8D;stroke-width:3;marker-end:url(#arrowTeal)}
+      .lineAmber{fill:none;stroke:#C77812;stroke-width:3;stroke-dasharray:9 8;marker-end:url(#arrowAmber)}
+      .lineRed{fill:none;stroke:#C44C55;stroke-width:3;marker-end:url(#arrowRed)}
+      .separator{stroke:#E4E9F1;stroke-width:2}
+    </style>
+  </defs>
+  <rect width="2400" height="2020" fill="#FBFCFE"/>
+  <text x="78" y="56" class="eyebrow">OPSPILOT  /  PORTFOLIO RUNTIME WALKTHROUGH</text>
+  <text x="78" y="116" class="title">02 — END-TO-END EXECUTION FLOW</text>
+  <text x="80" y="157" class="sub">Operator-started investigation → deterministic evidence gate → separately approved simulator action.</text>
+  <rect x="1650" y="52" width="672" height="105" rx="16" class="softslate"/>
+  <text x="1680" y="87" class="eyebrow">SCENARIO EXAMPLE · SCN-001</text>
+  <text x="1680" y="120" class="cardtitle">Peak traffic alert · Checkout API · DB pool exhaustion</text>
+  <text x="1680" y="144" class="tiny">Pool 32/32 · utilization 100% · trace wait 1,840 ms</text>
+
+  <rect x="60" y="190" width="2280" height="274" rx="22" fill="#F6F8FC" stroke="#D4DCE8" stroke-width="2"/>
+  <text x="92" y="231" class="eyebrow">1  /  REQUEST, AUTHORIZATION &amp; IDEMPOTENCY</text>
+
+  <rect x="92" y="268" width="270" height="142" rx="17" class="card"/>
+  <text x="118" y="306" class="eyebrow">OPERATOR</text>
+  <text x="118" y="345" class="cardtitle">Selects incident</text>
+  <text x="118" y="378" class="small">Existing or replay-created</text>
+  <path d="M362 339 H407" class="line"/>
+
+  <rect x="415" y="268" width="430" height="142" rx="17" class="softblue"/>
+  <text x="443" y="306" class="eyebrow">INVESTIGATION REQUEST</text>
+  <text x="443" y="345" class="cardtitle">POST /api/v1/incidents/{id}</text>
+  <text x="443" y="376" class="body">/investigate · idempotency key</text>
+  <text x="443" y="399" class="tiny">JSON body capped at 64 KiB</text>
+  <path d="M845 339 H890" class="line"/>
+
+  <rect x="898" y="268" width="425" height="142" rx="17" class="softblue"/>
+  <text x="926" y="306" class="eyebrow">HANDLER GATE</text>
+  <text x="926" y="345" class="cardtitle">Session · role · CSRF/origin</text>
+  <text x="926" y="378" class="body">JSON schema · incident state</text>
+  <text x="926" y="400" class="tiny">Reject before graph invocation</text>
+  <path d="M1323 339 H1363" class="line"/>
+
+  <polygon points="1504,258 1640,339 1504,420 1368,339" fill="#FFF8EB" stroke="#E3BD74" stroke-width="2.5"/>
+  <text x="1504" y="327" text-anchor="middle" class="cardtitle">Completed run</text>
+  <text x="1504" y="355" text-anchor="middle" class="cardtitle">for same key?</text>
+  <path d="M1640 339 H1692" class="lineTeal"/>
+  <text x="1664" y="321" class="tiny">Yes</text>
+  <rect x="1700" y="268" width="280" height="142" rx="17" class="softteal"/>
+  <text x="1725" y="306" class="eyebrow">REPLAY</text>
+  <text x="1725" y="345" class="cardtitle">Return stored result</text>
+  <text x="1725" y="378" class="small">No graph rerun for completed key</text>
+  <path d="M1980 339 H2320 V1263 H2305" fill="none" stroke="#0F8B8D" stroke-width="3" stroke-dasharray="9 8" marker-end="url(#arrowTeal)"/>
+  <text x="2325" y="420" text-anchor="end" class="tiny">stored response</text>
+
+  <path d="M1504 420 V436 H1282 V475" class="line"/>
+  <text x="1320" y="455" class="tiny">No / failed run</text>
+  <rect x="850" y="475" width="865" height="88" rx="16" class="softblue"/>
+  <text x="882" y="511" class="eyebrow">PERSIST OR REUSE INVESTIGATION ID</text>
+  <text x="882" y="543" class="body">LangGraph thread ID = run ID · failed retry uses the original idempotency key</text>
+
+  <rect x="1760" y="475" width="540" height="88" rx="16" class="softamber"/>
+  <text x="1790" y="511" class="eyebrow">ALERT WEBHOOK</text>
+  <text x="1790" y="543" class="body">Bearer-authenticated; operator starts investigation separately</text>
+
+  <rect x="60" y="588" width="2280" height="700" rx="22" fill="#F6F8FC" stroke="#D4DCE8" stroke-width="2"/>
+  <text x="92" y="630" class="eyebrow">2  /  CHECKPOINTED LANGGRAPH · SEQUENTIAL NODES IN THE REQUEST THREADPOOL</text>
+
+  <rect x="92" y="675" width="275" height="205" rx="17" class="card"/>
+  <circle cx="124" cy="712" r="17" fill="#EAF0FF"/><text x="124" y="718" text-anchor="middle" class="chip" fill="#3154C6">01</text>
+  <text x="153" y="719" class="cardtitle">Resolve scope</text>
+  <text x="118" y="759" class="body">Incident + authorized</text>
+  <text x="118" y="789" class="body">service dependency closure</text>
+  <text x="118" y="843" class="tiny">Scope follows service graph</text>
+  <path d="M367 775 H392" class="line"/>
+
+  <rect x="400" y="675" width="300" height="205" rx="17" class="card"/>
+  <circle cx="432" cy="712" r="17" fill="#EAF0FF"/><text x="432" y="718" text-anchor="middle" class="chip" fill="#3154C6">02</text>
+  <text x="461" y="719" class="cardtitle">Read service context</text>
+  <text x="426" y="759" class="body">Registry · health ·</text>
+  <text x="426" y="789" class="body">dependency map</text>
+  <text x="426" y="843" class="tiny">Bounded read-only calls</text>
+  <path d="M700 775 H725" class="line"/>
+
+  <rect x="733" y="675" width="414" height="205" rx="17" class="card"/>
+  <circle cx="765" cy="712" r="17" fill="#EAF0FF"/><text x="765" y="718" text-anchor="middle" class="chip" fill="#3154C6">03</text>
+  <text x="794" y="719" class="cardtitle">Gather evidence in order</text>
+  <text x="759" y="759" class="body">Logs → metrics → traces</text>
+  <text x="759" y="789" class="body">→ deployments → configuration</text>
+  <text x="759" y="822" class="small">Up to 50 records · 7-day window</text>
+  <rect x="759" y="837" width="365" height="28" rx="14" fill="#EEF4FF"/>
+  <text x="941" y="857" text-anchor="middle" class="tiny">SCN-001 sample: pool 32/32 · trace wait 1,840 ms</text>
+  <path d="M1147 775 H1172" class="line"/>
+
+  <rect x="1180" y="675" width="265" height="205" rx="17" class="card"/>
+  <circle cx="1212" cy="712" r="17" fill="#EAF0FF"/><text x="1212" y="718" text-anchor="middle" class="chip" fill="#3154C6">04</text>
+  <text x="1241" y="719" class="cardtitle">Normalize</text>
+  <text x="1206" y="759" class="body">Deduplicate evidence</text>
+  <text x="1206" y="789" class="body">Retain tool errors</text>
+  <text x="1206" y="843" class="tiny">Failures stay in diagnosis</text>
+  <path d="M1445 775 H1470" class="line"/>
+
+  <rect x="1459" y="675" width="370" height="205" rx="17" class="softblue"/>
+  <circle cx="1491" cy="712" r="17" fill="#EAF0FF"/><text x="1491" y="718" text-anchor="middle" class="chip" fill="#3154C6">05</text>
+  <text x="1520" y="719" class="cardtitle">Deterministic diagnosis</text>
+  <text x="1485" y="759" class="body">At least 2 evidence kinds</text>
+  <text x="1485" y="789" class="body">No tool errors</text>
+  <text x="1485" y="822" class="small">Lead ≥2 kinds if competitor exists</text>
+  <text x="1485" y="851" class="tiny">Sets supported / inconclusive status</text>
+  <path d="M1829 775 H1854" class="lineAmber"/>
+
+  <rect x="1862" y="675" width="438" height="225" rx="17" class="softamber"/>
+  <circle cx="1894" cy="712" r="17" fill="#F9E9C8"/><text x="1894" y="718" text-anchor="middle" class="chip" fill="#9B5B14">06</text>
+  <text x="1923" y="719" class="cardtitle">Optional model review</text>
+  <text x="1888" y="759" class="body">Explicit consent + HTTPS provider</text>
+  <text x="1888" y="789" class="small">Ranks fixed candidates · annotates gaps</text>
+  <text x="1888" y="819" class="small">Up to 4 candidates · 50 redacted observations</text>
+  <text x="1888" y="850" class="tiny">Cannot choose cause / action · failures fall back</text>
+  <path d="M2081 900 V907 H1550 V919" class="line"/>
+  <polygon points="1550,918 1715,965 1550,1012 1385,965" fill="#FFF8EB" stroke="#E3BD74" stroke-width="2.5"/>
+  <text x="1550" y="958" text-anchor="middle" class="cardtitle">Supported?</text>
+  <text x="1550" y="982" text-anchor="middle" class="tiny">Keep deterministic status</text>
+  <path d="M1385 965 H1000 V1042" class="lineRed"/>
+  <text x="1255" y="953" class="tiny">No</text>
+  <path d="M1550 1012 V1042" class="lineTeal"/>
+  <text x="1565" y="1034" class="tiny">Yes</text>
+
+  <rect x="720" y="1050" width="500" height="100" rx="17" class="softred"/>
+  <text x="748" y="1087" class="eyebrow">INCONCLUSIVE RESULT</text>
+  <text x="748" y="1124" class="cardtitle">Persist findings · proposal unavailable</text>
+
+  <rect x="1290" y="1050" width="500" height="100" rx="17" class="softteal"/>
+  <text x="1318" y="1087" class="eyebrow">SUPPORTED RESULT</text>
+  <text x="1318" y="1124" class="cardtitle">Persist cause + deterministic recommendation</text>
+
+  <rect x="720" y="1163" width="1580" height="70" rx="17" class="card"/>
+  <text x="750" y="1192" class="eyebrow">OPERATIONAL SQLITE</text>
+  <text x="750" y="1220" class="body">Diagnosis · evidence · tool outcomes · events · audit committed before response</text>
+  <path d="M970 1150 V1159" class="line"/>
+  <path d="M1540 1150 V1159" class="line"/>
+
+  <path d="M2070 1233 V1241" class="lineTeal"/>
+  <rect x="1840" y="1241" width="460" height="44" rx="15" fill="#EAF7F4" stroke="#BCE5E2" stroke-width="2"/>
+  <text x="2070" y="1270" text-anchor="middle" class="cardtitle">JSON result → browser console</text>
+
+  <path d="M2070 1285 V1337 H255 V1440" fill="none" stroke="#0F8B8D" stroke-width="3" stroke-dasharray="9 8" marker-end="url(#arrowTeal)"/>
+  <text x="660" y="1328" class="tiny">Operator requests proposal after reviewing result</text>
+  <rect x="60" y="1350" width="2280" height="440" rx="22" fill="#F6F8FC" stroke="#D4DCE8" stroke-width="2"/>
+  <text x="92" y="1393" class="eyebrow">3  /  SEPARATE REMEDIATION REQUEST · SUPPORTED RESULT IS NOT EXECUTION AUTHORITY</text>
+  <text x="2100" y="1393" text-anchor="end" class="tiny">Operator explicitly requests after result</text>
+
+  <rect x="92" y="1440" width="300" height="145" rx="17" class="softblue"/>
+  <text x="118" y="1478" class="eyebrow">PROPOSAL API</text>
+  <text x="118" y="1510" class="body">POST /api/v1/incidents/{id}</text>
+  <text x="118" y="1538" class="body">/remediation/propose</text>
+  <text x="118" y="1567" class="small">Explicit operator request</text>
+  <path d="M392 1512 H423" class="line"/>
+
+  <polygon points="554,1410 716,1512 554,1614 392,1512" fill="#FFF8EB" stroke="#E3BD74" stroke-width="2.5"/>
+  <text x="554" y="1497" text-anchor="middle" class="cardtitle">Supported diagnosis?</text>
+  <text x="554" y="1525" text-anchor="middle" class="tiny">Matching replay</text>
+  <text x="554" y="1549" text-anchor="middle" class="tiny">Allowlisted action</text>
+  <path d="M716 1512 H722" class="line"/>
+  <text x="694" y="1495" class="tiny">Yes</text>
+  <path d="M554 1614 V1644 H424" class="lineRed"/>
+  <rect x="92" y="1625" width="328" height="85" rx="15" class="softred"/>
+  <text x="118" y="1660" class="eyebrow">NO</text>
+  <text x="118" y="1690" class="body">409 · no proposal/state change</text>
+
+  <rect x="730" y="1440" width="350" height="145" rx="17" class="card"/>
+  <text x="758" y="1478" class="eyebrow">INDEPENDENT APPROVAL</text>
+  <text x="758" y="1517" class="cardtitle">Exact parameter hash</text>
+  <text x="758" y="1550" class="small">Different approver · 30-minute expiry</text>
+  <path d="M1080 1512 H1113" class="line"/>
+
+  <rect x="1120" y="1440" width="350" height="145" rx="17" class="softblue"/>
+  <text x="1148" y="1478" class="eyebrow">EXECUTION API</text>
+  <text x="1148" y="1517" class="cardtitle">Different operator</text>
+  <text x="1148" y="1550" class="small">Executes once against simulator</text>
+  <path d="M1470 1512 H1503" class="line"/>
+
+  <rect x="1510" y="1440" width="350" height="145" rx="17" class="card"/>
+  <text x="1538" y="1478" class="eyebrow">SERVER VERIFICATION</text>
+  <text x="1538" y="1517" class="cardtitle">Health · symptom · scope</text>
+  <text x="1538" y="1550" class="small">Server-owned checks</text>
+  <path d="M1860 1512 H1893" class="line"/>
+
+  <rect x="1900" y="1430" width="400" height="102" rx="17" class="softteal"/>
+  <text x="1928" y="1468" class="eyebrow">ALL CHECKS PASS</text>
+  <text x="1928" y="1505" class="cardtitle">Mark RESOLVED</text>
+  <path d="M1860 1512 H1875 V1634 H1893" class="lineAmber"/>
+  <rect x="1900" y="1584" width="400" height="108" rx="17" class="softamber"/>
+  <text x="1928" y="1622" class="eyebrow">A CHECK FAILS</text>
+  <text x="1928" y="1657" class="cardtitle">Stay VERIFYING · escalate</text>
+  <text x="1928" y="1681" class="tiny">Preserve unresolved verification report</text>
+
+  <rect x="730" y="1625" width="1130" height="85" rx="15" class="softslate"/>
+  <text x="758" y="1660" class="eyebrow">APPROVAL &amp; EXECUTION RECOVERY</text>
+  <text x="758" y="1690" class="body">Reject → investigation · expiry → fresh run + proposal · same key reuses result · new key returns 409</text>
+
+  <rect x="60" y="1820" width="2280" height="245" rx="22" fill="#FFFFFF" stroke="#D4DCE8" stroke-width="2"/>
+  <text x="92" y="1862" class="eyebrow">FAILURE &amp; RECOVERY PATHS</text>
+
+  <rect x="92" y="1890" width="500" height="135" rx="16" class="softred"/>
+  <text x="118" y="1927" class="eyebrow">REQUEST REJECTED</text>
+  <text x="118" y="1962" class="body">401 / 403 / 400 / 413 · no graph run</text>
+  <text x="118" y="1995" class="tiny">Session, role, CSRF, schema, body cap</text>
+
+  <rect x="620" y="1890" width="500" height="135" rx="16" class="softamber"/>
+  <text x="646" y="1927" class="eyebrow">TOOL ERROR</text>
+  <text x="646" y="1962" class="body">Retained in run → inconclusive finding</text>
+  <text x="646" y="1995" class="tiny">No supported action proposal</text>
+
+  <rect x="1148" y="1890" width="500" height="135" rx="16" class="softamber"/>
+  <text x="1174" y="1927" class="eyebrow">MODEL TIMEOUT / INVALID OUTPUT</text>
+  <text x="1174" y="1962" class="body">Continue with deterministic result</text>
+  <text x="1174" y="1995" class="tiny">Model cannot set cause or authorize action</text>
+
+  <rect x="1676" y="1890" width="624" height="135" rx="16" class="softred"/>
+  <text x="1702" y="1927" class="eyebrow">WORKFLOW EXCEPTION</text>
+  <text x="1702" y="1962" class="body">Persist failure · return 503</text>
+  <text x="1702" y="1995" class="tiny">Retry with original idempotency key to attempt checkpoint resume</text>
+
+  <line x1="80" y1="2087" x2="2320" y2="2087" class="separator"/>
+  <path d="M92 2110 H152" class="line"/>
+  <text x="170" y="2117" class="tiny">Request and data path</text>
+  <path d="M390 2110 H450" class="lineAmber"/>
+  <text x="468" y="2117" class="tiny">Optional / failure branch</text>
+  <path d="M730 2110 H790" class="lineTeal"/>
+  <text x="808" y="2117" class="tiny">Successful read or persisted result</text>
+  <text x="2320" y="2117" text-anchor="end" class="tiny">Source-checked: app.py · backend/workflow.py · backend/llm.py · docs/api.md</text>
+</svg>

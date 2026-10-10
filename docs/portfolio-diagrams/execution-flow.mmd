@@ -1,0 +1,48 @@
+flowchart TD
+  Start([Operator selects an incident]) --> Request["POST /api/v1/incidents/{id}/investigate<br/>Session · CSRF · idempotency key"]
+  Hook["Alert webhook creates an incident only"] -. "operator starts later" .-> Start
+  Request --> Gate{"Authenticated operator?<br/>Valid body, fields and state?"}
+  Gate -->|No| Reject["401 / 403 / 400 / 413<br/>Stop before workflow"]
+  Gate -->|Yes| Existing{"Completed run<br/>for this key?"}
+  Existing -->|Yes| Reuse["Return stored result"] --> Response["JSON result to browser console"]
+  Existing -->|No / failed| Run["Persist or reuse run ID<br/>LangGraph thread ID = run ID"]
+  Run --> Scope["Resolve incident and dependency scope"]
+  Scope --> Context["Read service list, health and dependencies"]
+  Context --> Logs["Read logs"] --> Metrics["Read metrics"] --> Traces["Read traces"] --> Changes["Read deployments and configuration"]
+  Changes --> Normalize["Deduplicate evidence<br/>Retain tool errors"]
+  Normalize --> Diagnose["Deterministic diagnosis<br/>≥2 distinct evidence kinds · no tool errors<br/>Lead of ≥2 kinds if competitor exists"]
+  Diagnose --> Consent{"Explicit consent +<br/>valid HTTPS provider?"}
+  Consent -->|No / disabled| Final["Keep deterministic status and cause"]
+  Consent -->|Yes| Rank["Optional model review<br/>Ranks fixed candidates · annotates missing evidence<br/>Cannot select cause or action"]
+  Rank --> Final
+  Rank -. "timeout / invalid / unavailable" .-> Final
+  Final --> Status{"Deterministic status<br/>is supported?"}
+  Status -->|No| Abstain["Inconclusive<br/>Keep findings; proposal unavailable"]
+  Status -->|Yes| Supported["Supported cause<br/>Recommendation remains deterministic"]
+  Abstain --> Persist["Persist result, evidence, tool outcomes,<br/>events and audit in SQLite"]
+  Supported --> Persist
+  Persist --> Response
+  Run -. "workflow exception" .-> Failed["Mark failed; return 503"]
+  Failed -. "retry original key" .-> Run
+  Response -. "operator later requests separate action" .-> Proposal["POST /api/v1/incidents/{id}/remediation/propose"]
+  Proposal --> Eligible{"Supported diagnosis?<br/>Active matching replay<br/>+ allowlisted action?"}
+  Eligible -->|No| Block["409 · no proposal or state change"]
+  Eligible -->|Yes| Approval["Store typed parameters + hash<br/>Approval expires in 30 minutes"]
+  Approval --> Reviewer{"Different approver<br/>approves exact parameters?"}
+  Reviewer -->|Reject| Rejected["Return incident to investigation"]
+  Reviewer -->|Expired / invalid| Expired["Block execution;<br/>fresh investigation + proposal required"]
+  Reviewer -->|Approve| Execute["Different operator executes once<br/>against simulator"]
+  Execute --> Verify{"Server checks health,<br/>symptom and scope"}
+  Verify -->|Pass| Resolved["Mark RESOLVED"]
+  Verify -->|Fail| Open["Remain unresolved in VERIFYING;<br/>escalate and preserve report"]
+  Execute -. "same key" .-> ReuseAction["Return saved execution result"]
+  Execute -. "different key" .-> Repeat["409 · duplicate execution blocked"]
+
+  classDef process fill:#EFF6FF,stroke:#2563EB,color:#0F172A;
+  classDef decision fill:#FFFBEB,stroke:#D97706,color:#0F172A;
+  classDef success fill:#F0FDF4,stroke:#16A34A,color:#0F172A;
+  classDef failure fill:#FEF2F2,stroke:#DC2626,color:#0F172A;
+  class Start,Request,Hook,Run,Scope,Context,Logs,Metrics,Traces,Changes,Normalize,Diagnose,Rank,Final,Supported,Persist,Response,Reuse,ReuseAction,Proposal,Approval,Execute,Verify,Resolved process;
+  class Gate,Existing,Consent,Status,Eligible,Reviewer decision;
+  class Resolved success;
+  class Reject,Abstain,Block,Rejected,Expired,Open,Repeat,Failed failure;

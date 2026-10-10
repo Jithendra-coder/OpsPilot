@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-label="OpsPilot demo: evidence first, action under human control">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#10231a"/><stop offset="1" stop-color="#24513b"/></linearGradient>
+    <linearGradient id="line" x1="0" x2="1"><stop stop-color="#85c39a"/><stop offset="1" stop-color="#d4ead9"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="24" stdDeviation="22" flood-color="#07140d" flood-opacity=".32"/></filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <circle cx="1630" cy="50" r="570" fill="#4e8763" opacity=".12"/>
+  <circle cx="250" cy="1080" r="520" fill="#71a681" opacity=".08"/>
+  <g transform="translate(144 130)" fill="none" stroke="#eaf5ef" stroke-width="9" stroke-linecap="round"><path d="M0 51v-19" opacity=".55"/><path d="M25 51V0"/><path d="M50 51V15" opacity=".76"/></g>
+  <text x="218" y="176" fill="#f4faf5" font-family="Segoe UI,Arial,sans-serif" font-size="42" font-weight="700" letter-spacing="-1">opspilot</text>
+  <text x="1775" y="170" text-anchor="end" fill="#a6c3ae" font-family="Segoe UI,Arial,sans-serif" font-size="22" font-weight="600" letter-spacing="2">PRODUCT WALKTHROUGH</text>
+  <text x="145" y="371" fill="#bad9c3" font-family="Segoe UI,Arial,sans-serif" font-size="24" font-weight="700" letter-spacing="3">INCIDENT INTELLIGENCE, UNDER CONTROL</text>
+  <text x="140" y="490" fill="#ffffff" font-family="Segoe UI,Arial,sans-serif" font-size="76" font-weight="600" letter-spacing="-3">Find the cause.</text>
+  <text x="140" y="580" fill="#b8dfc4" font-family="Segoe UI,Arial,sans-serif" font-size="76" font-weight="600" letter-spacing="-3">Keep control.</text>
+  <text x="145" y="667" fill="#d2e4d7" font-family="Segoe UI,Arial,sans-serif" font-size="28">Evidence-backed investigation. Human-approved remediation.</text>
+  <g filter="url(#shadow)">
+    <rect x="1020" y="255" width="745" height="560" rx="28" fill="#fff"/>
+    <path d="M1048 255h689a28 28 0 0 1 28 28v45h-745v-45a28 28 0 0 1 28-28Z" fill="#fbfdfb"/>
+    <path d="M1020 328h745" stroke="#e8ece9" stroke-width="2"/>
+    <circle cx="1055" cy="293" r="6" fill="#8bb79a"/><circle cx="1075" cy="293" r="6" fill="#d9e3db"/><circle cx="1095" cy="293" r="6" fill="#d9e3db"/>
+    <text x="1130" y="300" fill="#718077" font-family="Segoe UI,Arial,sans-serif" font-size="19">SCN-001  /  SEEDED LOCAL REPLAY</text>
+    <text x="1072" y="405" fill="#18231f" font-family="Segoe UI,Arial,sans-serif" font-size="36" font-weight="650">Peak traffic alert</text>
+    <text x="1074" y="443" fill="#718077" font-family="Segoe UI,Arial,sans-serif" font-size="22">Checkout API  ·  synthetic evidence</text>
+    <rect x="1070" y="480" width="294" height="125" rx="15" fill="#f8faf8" stroke="#e8ece9" stroke-width="2"/>
+    <rect x="1382" y="480" width="333" height="125" rx="15" fill="#f8faf8" stroke="#e8ece9" stroke-width="2"/>
+    <text x="1094" y="516" fill="#78877e" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="600" letter-spacing="1">DATABASE POOL</text>
+    <text x="1094" y="568" fill="#18231f" font-family="Segoe UI,Arial,sans-serif" font-size="43" font-weight="700">32<tspan fill="#859087" font-size="25">/32</tspan></text>
+    <text x="1406" y="516" fill="#78877e" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="600" letter-spacing="1">ACQUISITION WAIT</text>
+    <text x="1406" y="568" fill="#a46037" font-family="Segoe UI,Arial,sans-serif" font-size="43" font-weight="700">1.84<tspan fill="#a46037" font-size="25">s</tspan></text>
+    <rect x="1070" y="626" width="645" height="68" rx="12" fill="#f2f8f4" stroke="#dcece1" stroke-width="2"/>
+    <circle cx="1105" cy="660" r="14" fill="#167c55"/><path d="m1099 660 4 4 9-10" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1133" y="654" fill="#698071" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="700" letter-spacing="1">SUPPORTED CAUSE</text>
+    <text x="1133" y="679" fill="#2f5140" font-family="Segoe UI,Arial,sans-serif" font-size="21" font-weight="700">Connection pool exhaustion</text>
+    <rect x="1070" y="713" width="645" height="70" rx="12" fill="#fffbf5" stroke="#f0e2ce" stroke-width="2"/>
+    <rect x="1091" y="735" width="28" height="28" rx="8" fill="#f8eddc"/><path d="M1099 739v-3a6 6 0 0 1 12 0v3m-14 0h16v12h-16z" fill="none" stroke="#946329" stroke-width="2"/>
+    <text x="1134" y="741" fill="#917044" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" letter-spacing="1">NEXT: A DIFFERENT HUMAN APPROVER</text>
+    <text x="1134" y="766" fill="#644b29" font-family="Segoe UI,Arial,sans-serif" font-size="20" font-weight="650">Approval first. Verification decides.</text>
+  </g>
+  <path d="M145 892h1630" stroke="url(#line)" stroke-width="3" opacity=".55"/>
+  <circle cx="145" cy="892" r="6" fill="#92c5a1"/><circle cx="558" cy="892" r="6" fill="#92c5a1"/><circle cx="970" cy="892" r="6" fill="#92c5a1"/><circle cx="1382" cy="892" r="6" fill="#92c5a1"/><circle cx="1775" cy="892" r="6" fill="#92c5a1"/>
+  <text x="145" y="948" fill="#d0e1d5" font-family="Segoe UI,Arial,sans-serif" font-size="22">Scoped evidence</text>
+  <text x="558" y="948" text-anchor="middle" fill="#d0e1d5" font-family="Segoe UI,Arial,sans-serif" font-size="22">Supported cause</text>
+  <text x="970" y="948" text-anchor="middle" fill="#d0e1d5" font-family="Segoe UI,Arial,sans-serif" font-size="22">Human approval</text>
+  <text x="1382" y="948" text-anchor="middle" fill="#d0e1d5" font-family="Segoe UI,Arial,sans-serif" font-size="22">Verified recovery</text>
+  <text x="1775" y="1014" text-anchor="end" fill="#9db9a5" font-family="Segoe UI,Arial,sans-serif" font-size="18">CONTROLLED LOCAL SIMULATION  ·  NOT PRODUCTION TELEMETRY</text>
+</svg>

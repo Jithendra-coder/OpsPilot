@@ -1,0 +1,179 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1600" viewBox="0 0 2400 1600" role="img" aria-labelledby="title desc">
+  <title id="title">OpsPilot system architecture</title>
+  <desc id="desc">Verified runtime architecture for the local OpsPilot incident investigation and controlled simulator remediation application.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1,1 L11,6 L1,11 Z" fill="#4263EB"/></marker>
+    <marker id="arrowTeal" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1,1 L11,6 L1,11 Z" fill="#0F8B8D"/></marker>
+    <marker id="arrowAmber" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1,1 L11,6 L1,11 Z" fill="#C77812"/></marker>
+    <style>
+      text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#14213D}
+      .title{font-size:50px;font-weight:750;letter-spacing:-1.3px}
+      .sub{font-size:23px;fill:#53627A}
+      .eyebrow{font-size:16px;font-weight:750;letter-spacing:2px;fill:#52617A}
+      .section{font-size:23px;font-weight:750;letter-spacing:.2px}
+      .cardtitle{font-size:24px;font-weight:720}
+      .body{font-size:19px;fill:#394861}
+      .small{font-size:17px;fill:#53627A}
+      .tiny{font-size:15px;fill:#5C6A82}
+      .chip{font-size:15px;font-weight:700;letter-spacing:.6px}
+      .card{fill:#FFFFFF;stroke:#D8E0EC;stroke-width:2}
+      .softblue{fill:#F2F6FF;stroke:#CBD8FF;stroke-width:2}
+      .softteal{fill:#EFFAFA;stroke:#BCE5E2;stroke-width:2}
+      .softamber{fill:#FFF8EB;stroke:#F0D6A4;stroke-width:2}
+      .softslate{fill:#F6F8FB;stroke:#DBE2EC;stroke-width:2}
+      .line{fill:none;stroke:#4263EB;stroke-width:3;marker-end:url(#arrow)}
+      .lineTeal{fill:none;stroke:#0F8B8D;stroke-width:3;marker-end:url(#arrowTeal)}
+      .lineAmber{fill:none;stroke:#C77812;stroke-width:3;stroke-dasharray:9 8;marker-end:url(#arrowAmber)}
+      .separator{stroke:#E4E9F1;stroke-width:2}
+    </style>
+  </defs>
+  <rect width="2400" height="1600" fill="#FBFCFE"/>
+  <text x="78" y="56" class="eyebrow">OPSPILOT  /  PORTFOLIO SYSTEMS VIEW</text>
+  <text x="78" y="118" class="title">01 — SYSTEM ARCHITECTURE</text>
+  <text x="80" y="158" class="sub">Request handling, evidence-scoped investigation, and a gated simulator action path.</text>
+
+  <rect x="80" y="193" width="480" height="125" rx="18" class="card"/>
+  <rect x="80" y="193" width="7" height="125" rx="3" fill="#4263EB"/>
+  <text x="108" y="231" class="eyebrow">BROWSER CLIENT</text>
+  <text x="108" y="264" class="cardtitle">Operator &amp; approver console</text>
+  <text x="108" y="294" class="small">Static UI · same-origin API · role-gated actions</text>
+
+  <rect x="585" y="193" width="480" height="125" rx="18" class="card"/>
+  <rect x="585" y="193" width="7" height="125" rx="3" fill="#C77812"/>
+  <text x="613" y="231" class="eyebrow">ALERT ENTRY</text>
+  <text x="613" y="264" class="cardtitle">Bearer-authenticated webhook</text>
+  <text x="613" y="294" class="small">Validates + deduplicates · creates incident only</text>
+
+  <rect x="1090" y="193" width="480" height="125" rx="18" class="card"/>
+  <rect x="1090" y="193" width="7" height="125" rx="3" fill="#0F8B8D"/>
+  <text x="1118" y="231" class="eyebrow">LOCAL TOOL CLIENT</text>
+  <text x="1118" y="264" class="cardtitle">MCP-capable local host</text>
+  <text x="1118" y="294" class="small">Separate stdio connection · read-only tools</text>
+
+  <rect x="60" y="348" width="1535" height="1000" rx="24" fill="#F7F9FD" stroke="#BFCBE0" stroke-width="2.5"/>
+  <text x="92" y="393" class="eyebrow">APPLICATION PROCESS</text>
+  <text x="92" y="426" class="section">One Uvicorn worker · FastAPI ASGI + existing synchronous handler</text>
+  <rect x="1220" y="374" width="335" height="38" rx="19" fill="#EAF0FF"/>
+  <text x="1387" y="399" text-anchor="middle" class="chip" fill="#3154C6">IN-REQUEST EXECUTION</text>
+
+  <rect x="95" y="458" width="420" height="172" rx="18" class="softblue"/>
+  <text x="123" y="500" class="eyebrow">HTTP SERVER</text>
+  <text x="123" y="539" class="cardtitle">FastAPI ASGI</text>
+  <text x="123" y="575" class="body">Static introduction + console</text>
+  <text x="123" y="604" class="small">Versioned /api/v1 routes · one process</text>
+
+  <rect x="570" y="458" width="455" height="172" rx="18" class="softblue"/>
+  <text x="598" y="500" class="eyebrow">API ADAPTER</text>
+  <text x="598" y="539" class="cardtitle">Bounded request dispatch</text>
+  <text x="598" y="575" class="body">64 KiB streaming body cap</text>
+  <text x="598" y="604" class="small">Starlette threadpool → Handler.route</text>
+
+  <rect x="1080" y="458" width="455" height="172" rx="18" class="softblue"/>
+  <text x="1108" y="500" class="eyebrow">APPLICATION CORE</text>
+  <text x="1108" y="539" class="cardtitle">Handler + access controls</text>
+  <text x="1108" y="575" class="body">Validation · roles · sessions · CSRF</text>
+  <text x="1108" y="604" class="small">Incident lifecycle · API operations</text>
+
+  <path d="M515 544 H562" class="line"/>
+  <path d="M1025 544 H1072" class="line"/>
+  <path d="M320 318 V445" class="line"/>
+  <path d="M825 318 V445" class="lineAmber"/>
+  <path d="M1318 318 V330 H1631 V935 H1672" fill="none" stroke="#0F8B8D" stroke-width="3" stroke-dasharray="9 8" marker-end="url(#arrowTeal)"/>
+
+  <rect x="95" y="690" width="430" height="247" rx="18" class="softslate"/>
+  <text x="123" y="732" class="eyebrow">READ-ONLY TOOL CATALOG</text>
+  <text x="123" y="771" class="cardtitle">Incident-scoped evidence</text>
+  <text x="123" y="807" class="body">Service registry + scenario records</text>
+  <text x="123" y="840" class="small">Up to 50 records · up to 7 days</text>
+  <text x="123" y="871" class="small">Unavailable source → explicit tool error</text>
+  <text x="123" y="904" class="tiny">Catalog reads seeded incident scenarios</text>
+
+  <rect x="570" y="690" width="455" height="247" rx="18" class="softblue"/>
+  <text x="598" y="732" class="eyebrow">LANGGRAPH STATEGRAPH</text>
+  <text x="598" y="771" class="cardtitle">Sequential investigation</text>
+  <text x="598" y="807" class="body">Scope → service context → evidence</text>
+  <text x="598" y="840" class="small">Logs → metrics → traces → deploy/config</text>
+  <text x="598" y="871" class="small">Deduplicate → deterministic diagnosis</text>
+  <text x="598" y="904" class="tiny">Graph imports Python tools directly</text>
+
+  <rect x="1080" y="690" width="455" height="247" rx="18" class="softteal"/>
+  <text x="1108" y="732" class="eyebrow">INCIDENT CONTROLLER</text>
+  <text x="1108" y="771" class="cardtitle">Persist, report, gate action</text>
+  <text x="1108" y="807" class="body">Completed key → stored result</text>
+  <text x="1108" y="840" class="small">Supported result still needs proposal</text>
+  <text x="1108" y="871" class="small">Separate approval + execution requests</text>
+  <text x="1108" y="904" class="tiny">Diagnosis and proposal are distinct requests</text>
+
+  <path d="M1307 630 V681" class="line"/>
+  <path d="M1080 813 H1033" class="line"/>
+  <path d="M570 813 H533" class="lineTeal"/>
+  <text x="1019" y="795" text-anchor="end" class="tiny">run graph</text>
+  <text x="548" y="795" text-anchor="end" class="tiny">direct calls</text>
+
+  <rect x="95" y="990" width="1440" height="300" rx="20" fill="#FFFFFF" stroke="#AFC2EE" stroke-width="2.5"/>
+  <rect x="95" y="990" width="12" height="300" rx="5" fill="#4263EB"/>
+  <text x="132" y="1038" class="eyebrow">SEPARATE CONTROLLED ACTION PATH</text>
+  <text x="132" y="1077" class="cardtitle">Typed proposal → independent approval → one simulator execution</text>
+  <line x1="132" y1="1097" x2="1497" y2="1097" class="separator"/>
+  <text x="132" y="1135" class="body">Supported finding + active matching replay + allowlisted action</text>
+  <text x="132" y="1170" class="body">Immutable parameters/hash · different approver · 30-minute expiry</text>
+  <text x="132" y="1205" class="body">Different operator executes once · server checks health, symptom, and scope</text>
+  <rect x="132" y="1231" width="653" height="39" rx="19" fill="#EAF7F4"/>
+  <text x="458" y="1257" text-anchor="middle" class="chip" fill="#0C6B68">PASS → RESOLVED</text>
+  <rect x="805" y="1231" width="692" height="39" rx="19" fill="#FFF4E8"/>
+  <text x="1151" y="1257" text-anchor="middle" class="chip" fill="#9B5B14">FAIL → VERIFYING · ESCALATE</text>
+
+  <rect x="1640" y="193" width="700" height="1155" rx="24" fill="#F4F7FB" stroke="#D4DCE8" stroke-width="2"/>
+  <text x="1680" y="238" class="eyebrow">STATE &amp; ADJACENT SERVICES</text>
+
+  <rect x="1680" y="270" width="620" height="186" rx="17" class="card"/>
+  <path d="M1680 300 C1680 284 2300 284 2300 300 V420 C2300 436 1680 436 1680 420 Z" fill="#EDF3FF" stroke="#BFCFF5" stroke-width="2"/>
+  <ellipse cx="1990" cy="300" rx="310" ry="16" fill="#EDF3FF" stroke="#BFCFF5" stroke-width="2"/>
+  <text x="1710" y="337" class="eyebrow">OPERATIONAL DATABASE</text>
+  <text x="1710" y="373" class="cardtitle">SQLite · data/opspilot.db</text>
+  <text x="1710" y="407" class="small">Incidents · evidence · events · approvals/actions · audit</text>
+  <text x="1710" y="436" class="tiny">WAL · foreign keys · transactions · online backup utility</text>
+
+  <rect x="1680" y="482" width="620" height="144" rx="17" class="card"/>
+  <text x="1710" y="523" class="eyebrow">WORKFLOW CHECKPOINTS</text>
+  <text x="1710" y="559" class="cardtitle">Separate SQLite store by default</text>
+  <text x="1710" y="593" class="small">Optional PostgreSQL switch affects checkpoints only</text>
+
+  <rect x="1680" y="652" width="620" height="177" rx="17" class="softamber"/>
+  <text x="1710" y="693" class="eyebrow">OPTIONAL MODEL REVIEW</text>
+  <text x="1710" y="729" class="cardtitle">OpenAI-compatible HTTPS endpoint</text>
+  <text x="1710" y="763" class="small">Explicit consent · fixed candidates · bounded evidence</text>
+  <text x="1710" y="795" class="tiny">Can rank/annotate only; cannot decide cause or action</text>
+
+  <rect x="1680" y="855" width="620" height="160" rx="17" class="softteal"/>
+  <text x="1710" y="896" class="eyebrow">SEPARATE MCP ADAPTER</text>
+  <text x="1710" y="932" class="cardtitle">Read-only stdio server</text>
+  <text x="1710" y="966" class="small">Local MCP host → same Python catalog functions</text>
+  <text x="1710" y="993" class="tiny">Not used as the LangGraph tool transport</text>
+
+  <rect x="1680" y="1041" width="620" height="260" rx="17" class="card"/>
+  <text x="1710" y="1082" class="eyebrow">OBSERVABILITY &amp; RECOVERY</text>
+  <text x="1710" y="1119" class="cardtitle">Local metrics · optional OTLP export</text>
+  <text x="1710" y="1154" class="small">Prometheus endpoint requires authentication</text>
+  <line x1="1710" y1="1173" x2="2270" y2="1173" class="separator"/>
+  <text x="1710" y="1210" class="body">Backup utility: SQLite online copy</text>
+  <text x="1710" y="1243" class="small">Integrity check + SHA-256 manifest</text>
+
+  <path d="M1535 545 H1608 V364 H1672" class="line"/>
+  <path d="M825 937 V965 H1619 V554 H1672" class="line"/>
+  <text x="1400" y="956" text-anchor="middle" class="tiny">persisted run state</text>
+  <path d="M1025 748 H1045 V665 H1650 V740 H1672" class="lineAmber"/>
+  <text x="1395" y="650" text-anchor="middle" class="tiny">optional bounded review</text>
+  <path d="M1090 255 H1075 V870 H1672" class="lineTeal"/>
+
+  <line x1="80" y1="1410" x2="2320" y2="1410" class="separator"/>
+  <text x="82" y="1452" class="eyebrow">READING THE DIAGRAM</text>
+  <path d="M355 1445 H425" class="line"/>
+  <text x="445" y="1452" class="small">Synchronous request / data path</text>
+  <path d="M835 1445 H905" class="lineAmber"/>
+  <text x="925" y="1452" class="small">Optional provider call</text>
+  <path d="M1250 1445 H1320" class="lineTeal"/>
+  <text x="1340" y="1452" class="small">Separate entry or read-only connection</text>
+  <text x="82" y="1510" class="small">Single-process deployment · scenario-backed evidence · simulator-only actions.</text>
+  <text x="82" y="1548" class="tiny">Source-checked against app.py, backend/asgi.py, backend/workflow.py, backend/investigation_tools.py, backend/mcp_server.py and related docs.</text>
+</svg>
