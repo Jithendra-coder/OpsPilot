@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import app as core
+from backend import prometheus
 
 MAX_RESULTS = 50
 MAX_WINDOW = timedelta(days=7)
@@ -69,24 +70,48 @@ def _window(start_time: str | None, end_time: str | None):
 def _records(incident_id: str, kind: str, service_id: str | None, limit: int, start_time: str | None, end_time: str | None):
     if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= MAX_RESULTS:
         raise core.ApiError(400, "invalid_limit", "limit must be between 1 and 50.")
-    incident, scenario, services, _allowed, _lab, selected = _scope(incident_id, service_id)
+    incident, scenario, services, allowed, _lab = _context(incident_id)
+    selected = service_id
+    if selected and selected not in allowed:
+        raise core.ApiError(403, "service_scope_denied", "The requested service is outside this incident's dependency scope.")
     start, end = _window(start_time, end_time)
-    if not scenario:
-        raise core.ApiError(503, "telemetry_unavailable", "No local telemetry source is connected to this manual incident.")
-    observed_at = incident["created_at"]
-    stamp = _timestamp(observed_at, "incident timestamp")
-    if (start and stamp < start) or (end and stamp > end):
-        return []
     records = []
-    for record_kind, source, observation, signal_id, severity in core.loads(scenario["plan"], []):
-        if record_kind != kind:
-            continue
-        if selected != incident["service_id"] and selected not in source.casefold() and services[selected]["name"].casefold() not in source.casefold():
-            continue
-        records.append({"incident_id": incident_id, "correlation_id": incident["correlation_id"], "kind": kind,
-            "service_id": selected, "source": source, "observation": observation, "signal_id": signal_id,
-            "severity": severity, "observed_at": observed_at, "provenance": "seeded-local-scenario"})
-    unavailable = [(source, message) for source, message in core.loads(scenario["errors"], []) if source == kind]
+    provider_enabled = False
+    if scenario:
+        observed_at = incident["created_at"]
+        stamp = _timestamp(observed_at, "incident timestamp")
+        if (start and stamp < start) or (end and stamp > end):
+            return []
+        for record_kind, source, observation, signal_id, severity in core.loads(scenario["plan"], []):
+            if record_kind != kind:
+                continue
+            signal_service = core.SIGNAL_SERVICES.get(signal_id, incident["service_id"])
+            if selected and selected != signal_service and selected != incident["service_id"] and selected not in source.casefold() and services[selected]["name"].casefold() not in source.casefold():
+                continue
+            records.append({"incident_id": incident_id, "correlation_id": incident["correlation_id"], "kind": kind,
+                "service_id": signal_service, "source": source, "observation": observation, "signal_id": signal_id,
+                "severity": severity, "observed_at": observed_at, "provenance": "seeded-local-scenario"})
+        unavailable = [(source, message) for source, message in core.loads(scenario["errors"], []) if source == kind]
+    else:
+        with core.db() as con:
+            rows = con.execute("SELECT payload FROM incident_observations WHERE incident_id=? AND kind=? ORDER BY observed_at DESC,rowid DESC",
+                (incident_id,kind)).fetchall()
+            has_observations = bool(rows) or bool(con.execute("SELECT 1 FROM incident_observations WHERE incident_id=? LIMIT 1",
+                (incident_id,)).fetchone())
+        observations = [core.loads(row["payload"], {}) for row in rows]
+        for item in observations:
+            if item.get("service_id") not in allowed or (selected and item.get("service_id") != selected):
+                continue
+            stamp = _timestamp(item.get("observed_at"), "observation timestamp")
+            if (start and stamp < start) or (end and stamp > end):
+                continue
+            records.append(item)
+        if kind == "metrics":
+            provider_enabled = prometheus.enabled()
+            records.extend(prometheus.collect(incident, selected, allowed, start, end))
+        if not has_observations and not records and not provider_enabled:
+            raise core.ApiError(503, "telemetry_unavailable", "No evidence has been submitted for this incident.")
+        unavailable = []
     if unavailable:
         raise core.ApiError(503, "telemetry_unavailable", unavailable[0][1])
     return records[:limit]
@@ -154,15 +179,13 @@ def compare_time_windows(incident_id: str, service_id: str | None = None, limit:
     if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= MAX_RESULTS:
         raise core.ApiError(400, "invalid_limit", "limit must be between 1 and 50.")
     incident, scenario, _services, _allowed, _lab, selected = _scope(incident_id, service_id)
-    if not scenario:
-        raise core.ApiError(503, "telemetry_unavailable", "No local telemetry source is connected to this manual incident.")
     evidence = []
     for kind in ("logs", "metrics", "traces", "changes"):
         evidence.extend(_records(incident_id, kind, selected, min(limit, MAX_RESULTS), None, None))
     baselines = [item for item in evidence if "baseline" in item["observation"].casefold()]
     return {"incident_id": incident_id, "service_id": selected, "current_window": {"observed_at": incident["created_at"], "evidence_count": len(evidence), "observations": evidence[:MAX_RESULTS]},
-        "baseline": {"available": bool(baselines), "observations": baselines, "provenance": "seeded-scenario-baseline"},
-        "comparison_limit": "The local replay stores bounded scenario observations, not continuous time-series data."}
+        "baseline": {"available": bool(baselines), "observations": baselines, "provenance": "seeded-scenario-baseline" if scenario else "submitted-evidence"},
+        "comparison_limit": "OpsPilot stores bounded incident observations, not continuous time-series data."}
 
 
 TOOL_FUNCTIONS = {

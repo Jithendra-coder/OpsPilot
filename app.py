@@ -24,6 +24,7 @@ DATA = Path(os.environ.get("OPSPILOT_DATA_DIR", ROOT / "data")).resolve()
 DB_PATH = DATA / "opspilot.db"
 HOST, PORT = os.environ.get("OPSPILOT_HOST", "127.0.0.1"), int(os.environ.get("OPSPILOT_PORT", "8765"))
 MAX_BODY, SESSION_SECONDS = 64 * 1024, 8 * 60 * 60
+MAX_OBSERVATIONS = 25
 STATES = {"NEW", "TRIAGING", "INVESTIGATING", "AWAITING_APPROVAL", "REMEDIATING", "VERIFYING", "RESOLVED", "ESCALATED", "FAILED"}
 OPEN_STATES = {"NEW", "TRIAGING", "INVESTIGATING", "AWAITING_APPROVAL", "REMEDIATING", "VERIFYING"}
 TRANSITIONS = {
@@ -111,6 +112,8 @@ CAUSES = {
          ("trace.auth_validation","traces","api-gateway → auth verify token","issuer mismatch","error")],
         "Compare issuer metadata with sandbox identity configuration.","Inspect issuer settings on the local gateway and identity service."),
 }
+SIGNAL_KINDS = {signal[0]: signal[1] for cause in CAUSES.values() for signal in cause[3]}
+SIGNAL_SERVICES = {signal[0]: cause[2] for cause in CAUSES.values() for signal in cause[3]}
 SPECIALS = {
     "missing_telemetry": {
         "title":"Elevated errors with incomplete telemetry","description":"Errors rise, but traces and deployment records are unavailable.",
@@ -225,7 +228,9 @@ def initialize():
         CREATE INDEX IF NOT EXISTS idx_incidents_service_time ON incidents(service_id,created_at DESC);
         CREATE TABLE IF NOT EXISTS investigations(id TEXT PRIMARY KEY,incident_id TEXT NOT NULL,idempotency_key TEXT NOT NULL,status TEXT NOT NULL,started_at TEXT NOT NULL,completed_at TEXT,result TEXT,UNIQUE(incident_id,idempotency_key),FOREIGN KEY(incident_id) REFERENCES incidents(id) ON DELETE CASCADE);
         CREATE TABLE IF NOT EXISTS run_events(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,stage TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,details TEXT NOT NULL,FOREIGN KEY(run_id) REFERENCES investigations(id) ON DELETE CASCADE);
-        CREATE TABLE IF NOT EXISTS evidence(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,kind TEXT NOT NULL,source TEXT NOT NULL,observed_at TEXT NOT NULL,payload TEXT NOT NULL,signal_id TEXT,UNIQUE(run_id,kind),FOREIGN KEY(run_id) REFERENCES investigations(id) ON DELETE CASCADE);
+        CREATE TABLE IF NOT EXISTS evidence(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,kind TEXT NOT NULL,source TEXT NOT NULL,observed_at TEXT NOT NULL,payload TEXT NOT NULL,signal_id TEXT,FOREIGN KEY(run_id) REFERENCES investigations(id) ON DELETE CASCADE);
+        CREATE TABLE IF NOT EXISTS incident_observations(id TEXT PRIMARY KEY,incident_id TEXT NOT NULL,kind TEXT NOT NULL,service_id TEXT NOT NULL,source TEXT NOT NULL,observed_at TEXT NOT NULL,payload TEXT NOT NULL,signal_id TEXT,received_at TEXT NOT NULL,FOREIGN KEY(incident_id) REFERENCES incidents(id) ON DELETE CASCADE);
+        CREATE INDEX IF NOT EXISTS idx_incident_observations_scope ON incident_observations(incident_id,kind,observed_at DESC);
         CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,csrf TEXT NOT NULL,created_at TEXT NOT NULL,expires_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS evaluations(id TEXT PRIMARY KEY,started_at TEXT NOT NULL,completed_at TEXT NOT NULL,case_count INTEGER NOT NULL,accuracy REAL NOT NULL,inconclusive INTEGER NOT NULL,report TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS comments(id TEXT PRIMARY KEY,incident_id TEXT NOT NULL,actor TEXT NOT NULL,created_at TEXT NOT NULL,body TEXT NOT NULL,FOREIGN KEY(incident_id) REFERENCES incidents(id) ON DELETE CASCADE);
@@ -249,6 +254,14 @@ def initialize():
             if "actor" not in session_columns: con.execute("ALTER TABLE sessions ADD COLUMN actor TEXT NOT NULL DEFAULT 'Local operator'")
             if "role" not in session_columns: con.execute("ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'operator'")
             con.execute("INSERT INTO schema_migrations VALUES(1,?)",(now(),))
+        if version<2:
+            if not con.in_transaction: con.execute("BEGIN IMMEDIATE")
+            con.execute("ALTER TABLE evidence RENAME TO evidence_v1")
+            con.execute("CREATE TABLE evidence(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,kind TEXT NOT NULL,source TEXT NOT NULL,observed_at TEXT NOT NULL,payload TEXT NOT NULL,signal_id TEXT,FOREIGN KEY(run_id) REFERENCES investigations(id) ON DELETE CASCADE)")
+            con.execute("INSERT INTO evidence SELECT id,run_id,kind,source,observed_at,payload,signal_id FROM evidence_v1")
+            con.execute("DROP TABLE evidence_v1")
+            con.execute("CREATE INDEX idx_evidence_run_time ON evidence(run_id,observed_at DESC)")
+            con.execute("INSERT INTO schema_migrations VALUES(2,?)",(now(),))
         con.executemany("INSERT OR IGNORE INTO services VALUES(?,?,?,?,?,?)",
             [(sid,name,tier,owner,description,dumps(deps)) for sid,name,tier,owner,description,deps in SERVICES])
         for index,scenario in enumerate(scenarios()):
@@ -346,6 +359,84 @@ def add_incident(con,title,severity,service,description,owner,source,scenario_id
         (incident_id,title,severity,service,description,owner,"NEW",source,correlation_id,scenario_id,stamp,stamp))
     add_event(con,incident_id,"incident.created",{"status":"NEW","source":source,"correlation_id":correlation_id},actor)
     return incident_id
+
+def service_scope(con,service_id):
+    services={row["id"]:loads(row["dependencies"],[]) for row in con.execute("SELECT id,dependencies FROM services")}
+    allowed,pending=set(),[service_id]
+    while pending and len(allowed)<len(services):
+        current=pending.pop()
+        if current in allowed or current not in services: continue
+        allowed.add(current); pending.extend(services[current])
+    return allowed
+
+def record_observations(con,incident_id,items,provenance,actor,role):
+    if not isinstance(items,list) or len(items)>MAX_OBSERVATIONS:
+        raise ApiError(400,"invalid_evidence","evidence must be an array containing at most 25 observations.")
+    if not items: return []
+    incident=con.execute("SELECT * FROM incidents WHERE id=?",(incident_id,)).fetchone()
+    if not incident: raise ApiError(404,"incident_not_found","Incident not found.")
+    stored=[loads(row["payload"],{}) for row in con.execute("SELECT payload FROM incident_observations WHERE incident_id=?",(incident_id,))]
+    seen={(item.get("kind"),item.get("service_id"),item.get("source"),item.get("observation"),item.get("observed_at"),item.get("severity","neutral"),item.get("signal_id")) for item in stored}
+    allowed=service_scope(con,incident["service_id"])
+    normalized=[]
+    for item in items:
+        if not isinstance(item,dict): raise ApiError(400,"invalid_evidence","Each evidence item must be an object.")
+        require_fields(item,{"kind","service_id","source","observation","observed_at"},
+            {"kind","service_id","source","observation","observed_at","severity","signal_id"})
+        kind=item["kind"]
+        if not isinstance(kind,str) or kind not in {"logs","metrics","traces","changes"}:
+            raise ApiError(400,"invalid_evidence_kind","kind must be logs, metrics, traces, or changes.")
+        service=text_field(item["service_id"],"service_id",1,60)
+        if service not in allowed: raise ApiError(403,"service_scope_denied","Evidence service is outside this incident's dependency scope.")
+        source=text_field(item["source"],"source",1,120)
+        observation=text_field(item["observation"],"observation",1,1200)
+        observed_at=item["observed_at"]
+        try:
+            parsed=datetime.fromisoformat(observed_at.replace("Z","+00:00")) if isinstance(observed_at,str) else None
+        except ValueError:
+            parsed=None
+        if parsed is None or parsed.tzinfo is None:
+            raise ApiError(400,"invalid_observation_time","observed_at must be an ISO-8601 timestamp with a timezone.")
+        parsed=parsed.astimezone(timezone.utc)
+        current=datetime.now(timezone.utc)
+        if parsed>current: raise ApiError(400,"invalid_observation_time","observed_at cannot be in the future.")
+        if parsed<current-timedelta(days=7): raise ApiError(400,"observation_too_old","Evidence must be no more than seven days old.")
+        severity=item.get("severity","neutral")
+        if not isinstance(severity,str) or severity not in {"critical","error","warning","neutral","info"}:
+            raise ApiError(400,"invalid_evidence_severity","severity must be critical, error, warning, neutral, or info.")
+        signal_id=item.get("signal_id")
+        if signal_id is not None:
+            signal_id=text_field(signal_id,"signal_id",1,80)
+            if SIGNAL_KINDS.get(signal_id)!=kind:
+                raise ApiError(400,"invalid_signal_id","signal_id must be a supported signature for this evidence kind.")
+            if SIGNAL_SERVICES[signal_id] not in allowed:
+                raise ApiError(403,"service_scope_denied","The evidence signature is outside this incident's dependency scope.")
+        key=(kind,service,source,observation,parsed.isoformat(timespec="seconds").replace("+00:00","Z"),severity,signal_id)
+        if key in seen: continue
+        seen.add(key)
+        normalized.append({"id":ident("ev"),"incident_id":incident_id,"correlation_id":incident["correlation_id"],
+            "kind":kind,"service_id":service,"source":source,"observation":observation,
+            "observed_at":key[4],"severity":severity,
+            "signal_id":signal_id,"provenance":provenance})
+    if len(stored)+len(normalized)>MAX_OBSERVATIONS:
+        raise ApiError(400,"evidence_limit","An incident may contain at most 25 submitted observations.")
+    received=now()
+    for item in normalized:
+        con.execute("INSERT INTO incident_observations VALUES(?,?,?,?,?,?,?,?,?)",
+            (item["id"],incident_id,item["kind"],item["service_id"],item["source"],item["observed_at"],dumps(item),item["signal_id"],received))
+    details={"count":len(normalized),"kinds":sorted({item["kind"] for item in normalized})}
+    add_event(con,incident_id,"evidence.received",details,actor)
+    audit(con,actor,role,"evidence.received",incident_id,details)
+    return normalized
+
+def incident_evidence_records(con,incident_id):
+    rows=con.execute("WITH latest_run AS (SELECT id FROM investigations WHERE incident_id=? ORDER BY started_at DESC,rowid DESC LIMIT 1) SELECT payload FROM incident_observations WHERE incident_id=? UNION ALL SELECT e.payload FROM evidence e JOIN latest_run r ON r.id=e.run_id",
+        (incident_id,incident_id)).fetchall()
+    records={}
+    for row in rows:
+        item=loads(row["payload"],{})
+        if item: records[item.get("id",dumps(item))]=item
+    return sorted(records.values(),key=lambda item:item.get("observed_at",""),reverse=True)[:200]
 
 def set_status(con,incident_id,target,details,actor="Local operator",approval_id=None,verification_id=None):
     row=con.execute("SELECT status FROM incidents WHERE id=?",(incident_id,)).fetchone()
@@ -492,7 +583,6 @@ def _investigate(incident_id,key,actor):
     result=state["diagnosis"]
     for item in evidence: item["correlation_id"]=incident["correlation_id"]
     with db() as con:
-        existing={row["kind"] for row in con.execute("SELECT kind FROM evidence WHERE run_id=?",(run_id,))}
         with con:
             for tool in state.get("tool_history",[]):
                 details={"incident_id":incident_id,"service_scope":tool.get("service_scope",state.get("service_scope",[])),
@@ -500,9 +590,8 @@ def _investigate(incident_id,key,actor):
                 if tool.get("error"): details["error"]=tool["error"]
                 add_step(con,run_id,"tool:"+tool["name"],tool["status"],details)
             for item in evidence:
-                if item["kind"] not in existing:
-                    con.execute("INSERT INTO evidence VALUES(?,?,?,?,?,?,?)",
-                        (item["id"],run_id,item["kind"],item["source"],item["observed_at"],dumps(item),item["signal_id"]))
+                con.execute("INSERT OR IGNORE INTO evidence VALUES(?,?,?,?,?,?,?)",
+                    (item["id"],run_id,item["kind"],item["source"],item["observed_at"],dumps(item),item["signal_id"]))
             add_step(con,run_id,"hypothesis_evaluation","completed",{"evidence_count":len(evidence),"tool_error_count":len(errors)})
             add_step(con,run_id,"recommendation","completed" if result["recommendation"] else "skipped",
                 {"execution_enabled":bool(result["recommendation"] and result["recommendation"].get("execution_enabled")),"reason":result.get("uncertainty") or "Read-only proposal."})
@@ -541,6 +630,40 @@ def overview():
             "services":services,"incidents":incidents,
             "activity":[{"id":row["id"],"incident_id":row["incident_id"],"kind":row["kind"],"created_at":row["created_at"],
                 "details":loads(row["details"],{}),"incident_title":row["incident_title"],"severity":row["severity"],"service_id":row["service_id"]} for row in events]}
+
+# shortcut: per-process buckets do not coordinate across replicas; use shared state before multi-worker deployment.
+LOGIN_ATTEMPTS={}
+LOGIN_ATTEMPTS_LOCK=threading.Lock()
+LOGIN_ATTEMPTS_LAST_PRUNE=0.0
+LOGIN_ATTEMPT_LIMIT=5
+LOGIN_LOCK_SECONDS=60
+LOGIN_ENTRY_TTL=15*60
+LOGIN_MAX_ADDRESSES=4096
+
+def _reserve_login_attempt(address,stamp=None):
+    global LOGIN_ATTEMPTS_LAST_PRUNE
+    stamp=time.monotonic() if stamp is None else stamp
+    with LOGIN_ATTEMPTS_LOCK:
+        if stamp-LOGIN_ATTEMPTS_LAST_PRUNE>=60:
+            for key,(_attempts,locked_until,last_seen) in list(LOGIN_ATTEMPTS.items()):
+                if stamp-last_seen>=LOGIN_ENTRY_TTL and stamp>=locked_until:
+                    del LOGIN_ATTEMPTS[key]
+            LOGIN_ATTEMPTS_LAST_PRUNE=stamp
+        attempts,locked_until,last_seen=LOGIN_ATTEMPTS.get(address,(0,0,0))
+        if stamp<locked_until: return False
+        if locked_until: attempts=0
+        if attempts>=LOGIN_ATTEMPT_LIMIT:
+            LOGIN_ATTEMPTS[address]=(attempts,stamp+LOGIN_LOCK_SECONDS,stamp)
+            return False
+        LOGIN_ATTEMPTS[address]=(attempts+1,0,stamp)
+        if len(LOGIN_ATTEMPTS)>LOGIN_MAX_ADDRESSES:
+            oldest=min(LOGIN_ATTEMPTS,key=lambda key:LOGIN_ATTEMPTS[key][2])
+            del LOGIN_ATTEMPTS[oldest]
+        return True
+
+def _clear_login_attempts(address):
+    with LOGIN_ATTEMPTS_LOCK:
+        LOGIN_ATTEMPTS.pop(address,None)
 
 class Handler(BaseHTTPRequestHandler):
     server_version="OpsPilot/1.0"
@@ -601,19 +724,17 @@ class Handler(BaseHTTPRequestHandler):
         expected=os.environ.get("OPSPILOT_PUBLIC_ORIGIN") or "http://"+self.headers.get("Host","")
         if origin and origin.rstrip("/")!=expected.rstrip("/"):
             raise ApiError(403,"origin_rejected","Cross-origin requests are not allowed.")
-        address,stamp=self.client_address[0],time.time()
-        attempts,locked=LOGIN_ATTEMPTS.get(address,(0,0))
-        if stamp<locked: raise ApiError(429,"login_throttled","Too many sign-in attempts. Try again in a minute.")
+        address=self.client_address[0]
         payload=self.body(); require_fields(payload,{"password"},{"password"})
         password=text_field(payload["password"],"password",1,256)
+        if not _reserve_login_attempt(address): raise ApiError(429,"login_throttled","Too many sign-in attempts. Try again in a minute.")
         candidate=hashlib.pbkdf2_hmac("sha256",password.encode(),OPERATOR_SALT,600000)
         reviewer_candidate=hashlib.pbkdf2_hmac("sha256",password.encode(),APPROVER_SALT,600000)
         is_operator=hmac.compare_digest(candidate,OPERATOR_HASH)
         is_approver=hmac.compare_digest(reviewer_candidate,APPROVER_HASH)
         if not (is_operator or is_approver):
-            attempts+=1; LOGIN_ATTEMPTS[address]=(attempts,stamp+60 if attempts>=5 else 0)
             raise ApiError(401,"invalid_credentials","That password did not match.")
-        LOGIN_ATTEMPTS.pop(address,None)
+        _clear_login_attempts(address)
         role="approver" if is_approver else "operator"
         actor="Local approver" if is_approver else "Local operator"
         token,csrf_token=secrets.token_urlsafe(32),secrets.token_urlsafe(24)
@@ -666,7 +787,7 @@ class Handler(BaseHTTPRequestHandler):
         if path=="/api/v1/incidents" and self.command=="GET": return self.list_incidents(parse_qs(parsed.query))
         if path=="/api/v1/incidents" and self.command=="POST":
             if session["role"]!="operator": raise ApiError(403,"operator_role_required","Only an operator can create an incident.")
-            payload=self.body(); require_fields(payload,{"title","severity","service_id","description"},{"title","severity","service_id","description","owner"})
+            payload=self.body(); require_fields(payload,{"title","severity","service_id","description"},{"title","severity","service_id","description","owner","evidence"})
             return self.create(payload,session)
         if path=="/api/v1/simulations/start" and self.command=="POST":
             if session["role"]!="operator": raise ApiError(403,"operator_role_required","Only an operator can start a local simulation.")
@@ -694,6 +815,10 @@ class Handler(BaseHTTPRequestHandler):
             if action=="investigations" and self.command=="GET": return self.investigations(iid)
             if action=="events" and self.command=="GET": return self.incident_events(iid)
             if action=="evidence" and self.command=="GET": return self.incident_evidence(iid)
+            if action=="evidence" and self.command=="POST":
+                if session["role"]!="operator": raise ApiError(403,"operator_role_required","Only an operator can attach evidence.")
+                payload=self.body(); require_fields(payload,{"evidence"},{"evidence"})
+                return self.attach_evidence(iid,payload["evidence"],session)
             if action=="hypotheses" and self.command=="GET": return self.send(200,{"hypotheses":self.latest(iid)["result"].get("hypotheses",[])})
             if action=="report" and self.command=="GET": return self.report(iid)
             if action=="remediation" and len(parts)==7 and parts[6]=="propose" and self.command=="POST": return self.propose_remediation(iid,session)
@@ -724,9 +849,10 @@ class Handler(BaseHTTPRequestHandler):
         with db() as con:
             if not con.execute("SELECT 1 FROM services WHERE id=?",(service,)).fetchone(): raise ApiError(400,"unknown_service","Choose a service from the local registry.")
             iid=add_incident(con,title,severity,service,description,owner,"manual",correlation_id=correlation,actor=session["actor"])
+            evidence=record_observations(con,iid,payload.get("evidence",[]),"operator-submitted",session["actor"],session["role"])
             audit(con,session["actor"],session["role"],"incident.created",iid,{"source":"manual","service_id":service,"severity":severity})
             row=dict(con.execute("SELECT * FROM incidents WHERE id=?",(iid,)).fetchone())
-        self.send(201,{"incident":row})
+        self.send(201,{"incident":row,"evidence_received":len(evidence)})
     def receive_alert(self):
         configured=os.environ.get("OPSPILOT_ALERT_WEBHOOK_TOKEN","")
         if len(configured)<32: raise ApiError(503,"webhook_disabled","Set a 32-character OPSPILOT_ALERT_WEBHOOK_TOKEN to enable monitoring intake.")
@@ -736,7 +862,7 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(401,"webhook_authentication_required","A valid monitoring webhook credential is required.")
         payload=self.body()
         require_fields(payload,{"title","severity","service_id","description","correlation_id"},
-            {"title","severity","service_id","description","correlation_id","owner"})
+            {"title","severity","service_id","description","correlation_id","owner","evidence"})
         title=text_field(payload["title"],"title",8,120)
         severity=payload["severity"]
         if not isinstance(severity,str) or severity not in {"P1","P2","P3","P4"}: raise ApiError(400,"invalid_severity","severity must be P1, P2, P3, or P4.")
@@ -755,13 +881,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200,{"incident":dict(previous),"alert":{"id":previous["alert_id"],"correlation_id":correlation},"deduplicated":True})
             if not con.execute("SELECT 1 FROM services WHERE id=?",(service,)).fetchone(): raise ApiError(400,"unknown_service","Choose a service from the local registry.")
             incident_id=add_incident(con,title,severity,service,description,owner,"alert_webhook",correlation_id=correlation,actor="Monitoring webhook")
+            evidence=record_observations(con,incident_id,payload.get("evidence",[]),"authenticated-alert-webhook","Monitoring webhook","webhook")
             alert_id,stamp=ident("ALT"),now()
             con.execute("INSERT INTO alerts VALUES(?,?,?,?,?)",(alert_id,incident_id,correlation,payload_hash,stamp))
             add_event(con,incident_id,"alert.received",{"alert_id":alert_id,"correlation_id":correlation,"payload_hash":payload_hash},"Monitoring webhook")
             audit(con,"Monitoring webhook","webhook","alert.received",incident_id,{"alert_id":alert_id,"payload_hash":payload_hash})
             incident=dict(con.execute("SELECT * FROM incidents WHERE id=?",(incident_id,)).fetchone())
             con.commit()
-        self.send(201,{"incident":incident,"alert":{"id":alert_id,"correlation_id":correlation,"received_at":stamp},"deduplicated":False})
+        self.send(201,{"incident":incident,"alert":{"id":alert_id,"correlation_id":correlation,"received_at":stamp},"evidence_received":len(evidence),"deduplicated":False})
     def simulation(self,payload,session):
         require_fields(payload,{"scenario_id"},{"scenario_id","owner"})
         scenario_id=text_field(payload["scenario_id"],"scenario_id",4,80)
@@ -932,7 +1059,9 @@ class Handler(BaseHTTPRequestHandler):
         cases=[evaluate_case(row) for row in rows]
         correct=sum(case["correct"] for case in cases); inconclusive=sum(case["inconclusive"] for case in cases)
         labelled=sum(case["expected"] is not None for case in cases)
-        report={"cases":cases,"summary":{"scenario_count":len(cases),"labelled_cases":labelled,"correct":correct,
+        report={"evaluation_type":"seeded_signature_consistency",
+            "limitation":"Expected labels and observations share the internal signal catalog; results measure fixture-rule consistency, not accuracy on independent incidents.",
+            "cases":cases,"summary":{"scenario_count":len(cases),"labelled_cases":labelled,"correct":correct,
             "accuracy":round(correct/labelled,4) if labelled else 0,"inconclusive":inconclusive}}
         eid,completed=ident("EVAL"),now()
         with db() as con:
@@ -1000,15 +1129,28 @@ class Handler(BaseHTTPRequestHandler):
     def incident_evidence(self,iid):
         with db() as con:
             self.incident_row(con,iid)
-            rows=con.execute("SELECT e.payload FROM evidence e JOIN investigations r ON r.id=e.run_id WHERE r.incident_id=? ORDER BY observed_at DESC,e.rowid DESC LIMIT 200",(iid,)).fetchall()
-        self.send(200,{"evidence":[loads(r["payload"],{}) for r in rows]})
+            evidence=incident_evidence_records(con,iid)
+        self.send(200,{"evidence":evidence})
+    def attach_evidence(self,iid,items,session):
+        if not isinstance(items,list) or not items:
+            raise ApiError(400,"invalid_evidence","Submit at least one evidence observation.")
+        with db() as con:
+            con.execute("BEGIN IMMEDIATE")
+            incident=self.incident_row(con,iid)
+            if incident["source"] not in {"manual","alert_webhook"}:
+                raise ApiError(409,"evidence_source_locked","Replay evidence is fixed to its scenario.")
+            if incident["status"] not in {"NEW","TRIAGING"} or con.execute("SELECT 1 FROM investigations WHERE incident_id=? LIMIT 1",(iid,)).fetchone():
+                raise ApiError(409,"evidence_window_closed","Evidence can only be attached before the first investigation.")
+            evidence=record_observations(con,iid,items,"operator-submitted",session["actor"],session["role"])
+            con.commit()
+        self.send(201,{"evidence_received":len(evidence),"evidence_ids":[item["id"] for item in evidence]})
     def report(self,iid):
         with db() as con:
             incident=dict(self.incident_row(con,iid))
             run=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,rowid DESC LIMIT 1",(iid,)).fetchone()
             events=con.execute("SELECT * FROM incident_events WHERE incident_id=? ORDER BY created_at",(iid,)).fetchall()
             notes=con.execute("SELECT * FROM comments WHERE incident_id=? ORDER BY created_at",(iid,)).fetchall()
-            evidence=con.execute("SELECT e.payload FROM evidence e JOIN investigations r ON r.id=e.run_id WHERE r.incident_id=? ORDER BY e.observed_at",(iid,)).fetchall()
+            evidence=incident_evidence_records(con,iid)
             steps=con.execute("SELECT * FROM run_events WHERE run_id=? ORDER BY created_at",(run["id"],)).fetchall() if run else []
             proposals=con.execute("SELECT p.*,a.id approval_id,a.status approval_status,a.expires_at,a.approved_by,a.decided_at,a.decision_note,x.id execution_id,x.status execution_status,x.started_at execution_started_at,x.completed_at execution_completed_at,x.result execution_result,v.id verification_id,v.passed verification_passed,v.checked_at verification_checked_at,v.checks verification_checks,r.result investigation_result FROM remediation_proposals p LEFT JOIN approval_requests a ON a.proposal_id=p.id LEFT JOIN action_executions x ON x.proposal_id=p.id LEFT JOIN verification_results v ON v.execution_id=x.id JOIN investigations r ON r.id=p.investigation_id WHERE p.incident_id=? ORDER BY p.created_at DESC,p.rowid DESC",(iid,)).fetchall()
             action_history=[]
@@ -1024,7 +1166,7 @@ class Handler(BaseHTTPRequestHandler):
                 action_history.append(item)
         self.send(200,{"report":{"incident":incident,
             "investigation":{"id":run["id"],"status":run["status"],"started_at":run["started_at"],"completed_at":run["completed_at"],"result":loads(run["result"],{})} if run else None,
-            "evidence":[loads(r["payload"],{}) for r in evidence],
+            "evidence":evidence,
             "remediation":action_history,
             "timeline":[{"kind":r["kind"],"created_at":r["created_at"],"details":loads(r["details"],{})} for r in events],
             "comments":[{"created_at":r["created_at"],"actor":r["actor"],"body":r["body"]} for r in notes],
@@ -1070,7 +1212,6 @@ class Handler(BaseHTTPRequestHandler):
         if not row: raise ApiError(404,"investigation_not_found","Investigation not found.")
         self.send(200,{"hypotheses":loads(row["result"],{}).get("hypotheses",[])})
 
-LOGIN_ATTEMPTS={}
 OPERATOR_SALT=secrets.token_bytes(16)
 APPROVER_SALT=secrets.token_bytes(16)
 OPERATOR_PASSWORD=os.environ.get("OPSPILOT_PASSWORD") or secrets.token_urlsafe(24)

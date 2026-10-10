@@ -1,0 +1,39 @@
+{
+  "title": "Checkout request latency investigation",
+  "severity": "P2",
+  "service_id": "checkout",
+  "description": "Checkout requests are waiting for database connections.",
+  "evidence": [
+    {
+      "kind": "logs",
+      "service_id": "checkout",
+      "source": "checkout-api",
+      "observation": "Connection acquisition timed out while handling a checkout request.",
+      "severity": "error",
+      "signal_id": "log.db_acquire_timeout"
+    },
+    {
+      "kind": "logs",
+      "service_id": "checkout",
+      "source": "checkout-worker",
+      "observation": "The connection wait queue is still elevated.",
+      "severity": "warning"
+    },
+    {
+      "kind": "metrics",
+      "service_id": "checkout",
+      "source": "checkout-pool-exporter",
+      "observation": "All configured database connections are in use.",
+      "severity": "critical",
+      "signal_id": "metric.db_pool_saturated"
+    },
+    {
+      "kind": "traces",
+      "service_id": "postgres",
+      "source": "checkout-distributed-tracing",
+      "observation": "The checkout request spent most of its time waiting for a database connection.",
+      "severity": "error",
+      "signal_id": "trace.db_wait_high"
+    }
+  ]
+}

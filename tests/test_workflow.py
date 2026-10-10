@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,6 +9,34 @@ from backend import workflow
 
 
 class WorkflowRecoveryTests(unittest.TestCase):
+    def test_cold_checkpoint_store_supports_parallel_distinct_investigations(self):
+        with tempfile.TemporaryDirectory(prefix="opspilot-parallel-checkpoints-") as root:
+            previous_data, previous_db = app.DATA, app.DB_PATH
+            app.DATA = Path(root)
+            app.DB_PATH = app.DATA / "opspilot.db"
+            try:
+                app.initialize()
+                incidents = []
+                with app.db() as con:
+                    for scenario in app.scenarios()[:8]:
+                        stored = con.execute("SELECT * FROM scenarios WHERE id=?", (scenario["id"],)).fetchone()
+                        incident_id = app.add_incident(con, stored["title"], stored["severity"], stored["service_id"],
+                            stored["description"], "Test operator", "simulation", stored["id"])
+                        stamp = app.now()
+                        state = {"scenario_id": stored["id"], "fault_active": True,
+                            "services": {stored["service_id"]: {"status": "degraded"}}}
+                        con.execute("INSERT INTO lab_runs VALUES(?,?,?,?,?,?,?, ?,1)",
+                            (app.ident("LAB"), incident_id, stored["id"], stored["expected"], 1, app.dumps(state), stamp, stamp))
+                        incidents.append((incident_id, "cold-parallel-" + stored["id"]))
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    results = list(pool.map(lambda item: app.investigate(*item), incidents))
+                self.assertTrue(all(item["status"] == "completed" for item in results))
+                self.assertEqual(len({item["id"] for item in results}), 8)
+                with app.db() as con:
+                    self.assertEqual(con.execute("SELECT COUNT(*) FROM investigations WHERE status='completed'").fetchone()[0], 8)
+            finally:
+                app.DATA, app.DB_PATH = previous_data, previous_db
+
     def test_interrupted_graph_retries_from_saved_checkpoint(self):
         with tempfile.TemporaryDirectory(prefix="opspilot-workflow-") as root:
             previous_data, previous_db = app.DATA, app.DB_PATH

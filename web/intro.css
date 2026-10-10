@@ -50,9 +50,6 @@ a:focus-visible { outline: 3px solid rgba(22, 124, 85, .36); outline-offset: 4px
 .button-quiet { min-height: 44px; display: inline-flex; align-items: center; gap: 9px; color: #3a5144; text-decoration: none; font-size: 13px; font-weight: 650; }
 .button-quiet span { color: var(--green); transition: transform .16s ease; }
 .button-quiet:hover span { transform: translateY(3px); }
-.hero-boundary { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 28px; color: #6b786f; font-size: 11px; }
-.hero-boundary > span { color: var(--green); font-size: 14px; }
-.hero-boundary i { width: 3px; height: 3px; border-radius: 50%; background: #9ba79f; }
 
 .incident-preview { position: relative; overflow: hidden; border: 1px solid rgba(215, 225, 218, .9); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); transform: perspective(1200px) rotateY(-1.4deg); }
 .preview-chrome { height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 18px; border-bottom: 1px solid var(--line); background: #fdfefd; }
@@ -99,7 +96,6 @@ a:focus-visible { outline: 3px solid rgba(22, 124, 85, .36); outline-offset: 4px
 .approval-row small { color: #917044; }
 .approval-row strong { color: #644b29; }
 .approval-state { margin-left: auto; padding: 4px 6px; border: 1px solid #eedbbd; border-radius: 4px; color: #8a6128; font-size: 8px; font-weight: 760; letter-spacing: .35px; white-space: nowrap; }
-.preview-foot { display: flex; justify-content: space-between; padding: 10px 26px; border-top: 1px solid var(--line); color: #849087; background: #fcfdfc; font-size: 9px; }
 
 .trust-strip { border-block: 1px solid #e4e9e5; background: rgba(255,255,255,.67); }
 .trust-items { min-height: 74px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
@@ -195,7 +191,6 @@ a:focus-visible { outline: 3px solid rgba(22, 124, 85, .36); outline-offset: 4px
   .hero-actions { gap: 17px; margin-top: 23px; }
   .button { min-height: 45px; padding-inline: 16px; font-size: 13px; }
   .button-quiet { font-size: 12px; }
-  .hero-boundary { gap: 7px; margin-top: 21px; font-size: 9px; }
   .incident-preview { border-radius: 12px; }
   .preview-chrome { height: 42px; padding-inline: 12px; }
   .preview-mode { font-size: 8px; }
@@ -216,7 +211,6 @@ a:focus-visible { outline: 3px solid rgba(22, 124, 85, .36); outline-offset: 4px
   .cause-score { font-size: 8px; }
   .cause-row, .approval-row { gap: 7px; padding-inline: 8px; }
   .approval-state { padding-inline: 4px; font-size: 7px; }
-  .preview-foot { padding-inline: 14px; font-size: 8px; }
   .trust-items { gap: 13px 10px; }
   .trust-items span { gap: 6px; font-size: 10px; }
   .trust-items b { font-size: 8px; }

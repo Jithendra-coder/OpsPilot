@@ -278,8 +278,6 @@ textarea { min-height: 106px; resize: vertical; }
 .breadcrumb strong { color: #4a5850; font-weight: 610; }
 .breadcrumb-separator { color: #c0c9c3; }
 .topbar-actions { display: flex; align-items: center; gap: 15px; }
-.environment-pill { display: inline-flex; align-items: center; gap: 8px; color: #718078; font-size: 9px; font-weight: 680; letter-spacing: .65px; }
-.environment-pill .status-dot { width: 6px; height: 6px; }
 .page-content { width: min(100%, 1420px); margin: 0 auto; padding: 31px 34px 48px; outline: none; }
 .page-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 23px; }
 .page-heading h1 { margin: 0; font-size: 23px; font-weight: 620; letter-spacing: -.85px; line-height: 1.35; }
@@ -668,7 +666,6 @@ textarea { min-height: 106px; resize: vertical; }
   .nav-badge, .nav-count { display: none !important; }
   .main-shell { grid-column: 1; padding-bottom: 70px; }
   .topbar { height: 55px; padding: 0 15px; }
-  .environment-pill { display: none; }
   .topbar-actions { gap: 5px; }
   .button-compact { min-height: 32px; padding-inline: 9px; font-size: 10px; }
   .page-content { padding: 23px 14px 36px; }

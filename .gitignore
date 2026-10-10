@@ -1,8 +1,52 @@
-data/
-.venv/
-__pycache__/
-*.py[cod]
+# Local configuration and credentials
 .env
 .env.*
+!.env.example
+!.env.sample
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local databases and backups
+data/
 backups/
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.sqlite-journal
+
+# JavaScript build artifacts
+node_modules/
+dist/
+build/
+coverage/
+.next/
+.vite/
+
+# Logs and temporary files
+*.log
+logs/
+tmp/
+temp/
+.cache/
 .superdesign/tmp/
+
+# Local credentials and certificates
+*.pem
+*.key
+credentials.json
+
+# Local editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

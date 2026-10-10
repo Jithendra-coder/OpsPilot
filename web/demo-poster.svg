@@ -19,9 +19,9 @@
     <path d="M1048 255h689a28 28 0 0 1 28 28v45h-745v-45a28 28 0 0 1 28-28Z" fill="#fbfdfb"/>
     <path d="M1020 328h745" stroke="#e8ece9" stroke-width="2"/>
     <circle cx="1055" cy="293" r="6" fill="#8bb79a"/><circle cx="1075" cy="293" r="6" fill="#d9e3db"/><circle cx="1095" cy="293" r="6" fill="#d9e3db"/>
-    <text x="1130" y="300" fill="#718077" font-family="Segoe UI,Arial,sans-serif" font-size="19">SCN-001  /  SEEDED LOCAL REPLAY</text>
+    <text x="1130" y="300" fill="#718077" font-family="Segoe UI,Arial,sans-serif" font-size="19">INCIDENT  /  CHECKOUT API</text>
     <text x="1072" y="405" fill="#18231f" font-family="Segoe UI,Arial,sans-serif" font-size="36" font-weight="650">Peak traffic alert</text>
-    <text x="1074" y="443" fill="#718077" font-family="Segoe UI,Arial,sans-serif" font-size="22">Checkout API  ·  synthetic evidence</text>
+    <text x="1074" y="443" fill="#718077" font-family="Segoe UI,Arial,sans-serif" font-size="22">Connection pool under pressure</text>
     <rect x="1070" y="480" width="294" height="125" rx="15" fill="#f8faf8" stroke="#e8ece9" stroke-width="2"/>
     <rect x="1382" y="480" width="333" height="125" rx="15" fill="#f8faf8" stroke="#e8ece9" stroke-width="2"/>
     <text x="1094" y="516" fill="#78877e" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="600" letter-spacing="1">DATABASE POOL</text>
@@ -43,5 +43,5 @@
   <text x="558" y="948" text-anchor="middle" fill="#d0e1d5" font-family="Segoe UI,Arial,sans-serif" font-size="22">Supported cause</text>
   <text x="970" y="948" text-anchor="middle" fill="#d0e1d5" font-family="Segoe UI,Arial,sans-serif" font-size="22">Human approval</text>
   <text x="1382" y="948" text-anchor="middle" fill="#d0e1d5" font-family="Segoe UI,Arial,sans-serif" font-size="22">Verified recovery</text>
-  <text x="1775" y="1014" text-anchor="end" fill="#9db9a5" font-family="Segoe UI,Arial,sans-serif" font-size="18">CONTROLLED LOCAL SIMULATION  ·  NOT PRODUCTION TELEMETRY</text>
+  <text x="1775" y="1014" text-anchor="end" fill="#9db9a5" font-family="Segoe UI,Arial,sans-serif" font-size="18">EVIDENCE  ·  HUMAN APPROVAL  ·  VERIFIED RECOVERY</text>
 </svg>

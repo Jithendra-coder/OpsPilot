@@ -1,7 +1,7 @@
 flowchart LR
   subgraph Clients["CLIENTS & ENTRY POINTS"]
     Browser["Operator / approver<br/>Static browser UI"]
-    Alert["Alert sender<br/>Bearer-auth webhook"]
+    Alert["Alert sender<br/>Bearer-auth evidence push"]
     McpHost["Local MCP host"]
   end
 
@@ -10,9 +10,9 @@ flowchart LR
     Adapter["Versioned API adapter<br/>64 KiB cap · Starlette threadpool"]
     Handler["Synchronous Handler.route<br/>Session · role · CSRF · input checks"]
     Incident["Incident lifecycle<br/>SQLite transactions · idempotency"]
-    Graph["Checkpointed LangGraph<br/>Scope → context → logs → metrics → traces → changes"]
+    Graph["Checkpointed LangGraph<br/>Scope → logs → metrics → traces → one change stream"]
     Diagnosis["Deterministic signature engine<br/>Inconclusive on weak or failed evidence"]
-    Catalog["Shared bounded read-only tool catalog<br/>Incident dependency scope · 50 rows · 7 days"]
+    Catalog["Shared bounded read-only tool catalog<br/>Fixtures or submitted observations · scoped · bounded"]
     Action["Typed remediation gate<br/>Immutable parameters · two-person approval"]
     Verify["Simulator executor + server-owned verification"]
     ASGI --> Adapter --> Handler --> Incident --> Graph

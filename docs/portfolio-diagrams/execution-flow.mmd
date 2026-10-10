@@ -1,14 +1,13 @@
 flowchart TD
-  Start([Operator selects an incident]) --> Request["POST /api/v1/incidents/{id}/investigate<br/>Session · CSRF · idempotency key"]
-  Hook["Alert webhook creates an incident only"] -. "operator starts later" .-> Start
+  Start([Operator selects replay or submitted incident]) --> Request["POST /api/v1/incidents/{id}/investigate<br/>Session · CSRF · idempotency key"]
+  Hook["Alert webhook creates incident + optional evidence"] -. "operator starts later" .-> Start
   Request --> Gate{"Authenticated operator?<br/>Valid body, fields and state?"}
   Gate -->|No| Reject["401 / 403 / 400 / 413<br/>Stop before workflow"]
   Gate -->|Yes| Existing{"Completed run<br/>for this key?"}
   Existing -->|Yes| Reuse["Return stored result"] --> Response["JSON result to browser console"]
   Existing -->|No / failed| Run["Persist or reuse run ID<br/>LangGraph thread ID = run ID"]
   Run --> Scope["Resolve incident and dependency scope"]
-  Scope --> Context["Read service list, health and dependencies"]
-  Context --> Logs["Read logs"] --> Metrics["Read metrics"] --> Traces["Read traces"] --> Changes["Read deployments and configuration"]
+  Scope --> Logs["Read logs"] --> Metrics["Read metrics"] --> Traces["Read traces"] --> Changes["Read combined change events"]
   Changes --> Normalize["Deduplicate evidence<br/>Retain tool errors"]
   Normalize --> Diagnose["Deterministic diagnosis<br/>≥2 distinct evidence kinds · no tool errors<br/>Lead of ≥2 kinds if competitor exists"]
   Diagnose --> Consent{"Explicit consent +<br/>valid HTTPS provider?"}
@@ -42,7 +41,7 @@ flowchart TD
   classDef decision fill:#FFFBEB,stroke:#D97706,color:#0F172A;
   classDef success fill:#F0FDF4,stroke:#16A34A,color:#0F172A;
   classDef failure fill:#FEF2F2,stroke:#DC2626,color:#0F172A;
-  class Start,Request,Hook,Run,Scope,Context,Logs,Metrics,Traces,Changes,Normalize,Diagnose,Rank,Final,Supported,Persist,Response,Reuse,ReuseAction,Proposal,Approval,Execute,Verify,Resolved process;
+  class Start,Request,Hook,Run,Scope,Logs,Metrics,Traces,Changes,Normalize,Diagnose,Rank,Final,Supported,Persist,Response,Reuse,ReuseAction,Proposal,Approval,Execute,Verify,Resolved process;
   class Gate,Existing,Consent,Status,Eligible,Reviewer decision;
   class Resolved success;
   class Reject,Abstain,Block,Rejected,Expired,Open,Repeat,Failed failure;

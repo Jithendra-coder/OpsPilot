@@ -91,7 +91,7 @@
   <rect x="570" y="690" width="455" height="247" rx="18" class="softblue"/>
   <text x="598" y="732" class="eyebrow">LANGGRAPH STATEGRAPH</text>
   <text x="598" y="771" class="cardtitle">Sequential investigation</text>
-  <text x="598" y="807" class="body">Scope → service context → evidence</text>
+  <text x="598" y="807" class="body">Scope → scoped evidence reads</text>
   <text x="598" y="840" class="small">Logs → metrics → traces → deploy/config</text>
   <text x="598" y="871" class="small">Deduplicate → deterministic diagnosis</text>
   <text x="598" y="904" class="tiny">Graph imports Python tools directly</text>

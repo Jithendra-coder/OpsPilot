@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import operator
 import os
+import threading
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -16,6 +17,9 @@ from backend.llm import rank_hypotheses
 from langgraph.graph import END, START, StateGraph
 
 os.environ.setdefault("LANGGRAPH_STRICT_MSGPACK", "true")
+
+_CHECKPOINT_SETUP_LOCK = threading.Lock()
+_CHECKPOINT_SETUP_PATH: str | None = None
 
 
 class InvestigationState(TypedDict, total=False):
@@ -30,7 +34,6 @@ class InvestigationState(TypedDict, total=False):
     diagnosis: dict[str, Any]
     model_review: dict[str, Any]
     missing_evidence: list[str]
-    budget_remaining: int
 
 
 def _invoke_tool(state: InvestigationState, name: str, function, *args, kind: str | None = None):
@@ -46,8 +49,7 @@ def _invoke_tool(state: InvestigationState, name: str, function, *args, kind: st
         status, count = "unavailable", 0
     return {"evidence": records, "tool_errors": failures,
         "tool_history": [{"name": name, "status": status, "result_count": count,
-            "service_scope": state.get("service_scope", []), "incident_id": state["incident_id"]}],
-        "budget_remaining": max(0, state.get("budget_remaining", 1) - 1)}
+            "service_scope": state.get("service_scope", []), "incident_id": state["incident_id"]}]}
 
 
 def intake(state: InvestigationState):
@@ -57,44 +59,20 @@ def intake(state: InvestigationState):
             "service_scope": sorted(scope), "incident_id": incident["id"]}]}
 
 
-def service_context(state: InvestigationState):
-    outputs = []
-    for name, function, args in (
-        ("list_services", tools.list_services, (state["incident_id"],)),
-        ("get_service_health", tools.get_service_health, (state["incident_id"], state["service_id"])),
-        ("get_service_dependencies", tools.get_service_dependencies, (state["incident_id"], state["service_id"])),
-    ):
-        try:
-            result = function(*args)
-            count = len(result.get("services", result.get("dependencies", []))) if isinstance(result, dict) else 1
-            status = "completed"
-            failure = []
-        except core.ApiError as error:
-            count, status = 0, "unavailable"
-            failure = [{"kind": name, "code": error.code, "message": error.message}]
-        outputs.append({"name": name, "status": status, "result_count": count,
-            "service_scope": state["service_scope"], "incident_id": state["incident_id"], "error": failure})
-    return {"tool_history": outputs}
-
-
 def read_logs(state: InvestigationState):
-    return _invoke_tool(state, "get_recent_logs", tools.get_recent_logs, state["incident_id"], state["service_id"], 50, kind="logs")
+    return _invoke_tool(state, "get_recent_logs", tools.get_recent_logs, state["incident_id"], None, 50, kind="logs")
 
 
 def read_metrics(state: InvestigationState):
-    return _invoke_tool(state, "query_error_metrics", tools.query_error_metrics, state["incident_id"], state["service_id"], 50, kind="metrics")
+    return _invoke_tool(state, "query_error_metrics", tools.query_error_metrics, state["incident_id"], None, 50, kind="metrics")
 
 
 def read_traces(state: InvestigationState):
-    return _invoke_tool(state, "get_request_traces", tools.get_request_traces, state["incident_id"], state["service_id"], 50, kind="traces")
+    return _invoke_tool(state, "get_request_traces", tools.get_request_traces, state["incident_id"], None, 50, kind="traces")
 
 
-def read_deployments(state: InvestigationState):
-    return _invoke_tool(state, "get_deployment_history", tools.get_deployment_history, state["incident_id"], state["service_id"], 50, kind="changes")
-
-
-def read_config(state: InvestigationState):
-    return _invoke_tool(state, "get_recent_config_changes", tools.get_recent_config_changes, state["incident_id"], state["service_id"], 50, kind="changes")
+def read_change_events(state: InvestigationState):
+    return _invoke_tool(state, "get_deployment_history", tools.get_deployment_history, state["incident_id"], None, 50, kind="changes")
 
 
 def evaluate_hypotheses(state: InvestigationState):
@@ -105,7 +83,7 @@ def evaluate_hypotheses(state: InvestigationState):
             continue
         seen.add(key)
         item = dict(item)
-        item["id"] = core.ident("ev")
+        item.setdefault("id", core.ident("ev"))
         evidence.append(item)
     for error in state.get("tool_errors", []):
         key = (error.get("kind"), error.get("code"), error.get("message"))
@@ -136,25 +114,24 @@ def review_hypotheses(state: InvestigationState):
 
 def _build(checkpointer):
     graph = StateGraph(InvestigationState)
-    for name, function in (("intake", intake), ("service_context", service_context), ("logs", read_logs),
-        ("metrics", read_metrics), ("traces", read_traces), ("deployments", read_deployments),
-        ("config_changes", read_config), ("hypothesis_evaluation", evaluate_hypotheses), ("llm_hypothesis_review", review_hypotheses)):
+    for name, function in (("intake", intake), ("logs", read_logs),
+        ("metrics", read_metrics), ("traces", read_traces), ("change_events", read_change_events),
+        ("hypothesis_evaluation", evaluate_hypotheses), ("llm_hypothesis_review", review_hypotheses)):
         graph.add_node(name, function)
     graph.add_edge(START, "intake")
-    graph.add_edge("intake", "service_context")
-    graph.add_edge("service_context", "logs")
+    graph.add_edge("intake", "logs")
     graph.add_edge("logs", "metrics")
     graph.add_edge("metrics", "traces")
-    graph.add_edge("traces", "deployments")
-    graph.add_edge("deployments", "config_changes")
-    graph.add_edge("config_changes", "hypothesis_evaluation")
+    graph.add_edge("traces", "change_events")
+    graph.add_edge("change_events", "hypothesis_evaluation")
     graph.add_edge("hypothesis_evaluation", "llm_hypothesis_review")
     graph.add_edge("llm_hypothesis_review", END)
     return graph.compile(checkpointer=checkpointer)
 
 
 def run_investigation(incident_id: str, run_id: str):
-    initial: InvestigationState = {"incident_id": incident_id, "service_scope": [], "evidence": [], "tool_errors": [], "tool_history": [], "budget_remaining": 12}
+    global _CHECKPOINT_SETUP_PATH
+    initial: InvestigationState = {"incident_id": incident_id, "service_scope": [], "evidence": [], "tool_errors": [], "tool_history": []}
     config = {"configurable": {"thread_id": run_id}, "recursion_limit": 16}
     postgres_url = os.environ.get("OPSPILOT_CHECKPOINT_DATABASE_URL")
     if postgres_url:
@@ -163,9 +140,17 @@ def run_investigation(incident_id: str, run_id: str):
             checkpointer.setup()
             return _build(checkpointer).invoke(initial, config)
     from langgraph.checkpoint.sqlite import SqliteSaver
-    checkpoint_path = core.DATA / "workflow-checkpoints.sqlite"
+    checkpoint_path = (core.DATA / "workflow-checkpoints.sqlite").resolve()
     core.DATA.mkdir(parents=True, exist_ok=True)
     with SqliteSaver.from_conn_string(str(Path(checkpoint_path))) as checkpointer:
+        checkpointer.conn.execute("PRAGMA busy_timeout=15000")
+        with _CHECKPOINT_SETUP_LOCK:
+            if _CHECKPOINT_SETUP_PATH != str(checkpoint_path):
+                checkpointer.setup()
+                # shortcut: setup is cached per path; restart after replacing the checkpoint file.
+                _CHECKPOINT_SETUP_PATH = str(checkpoint_path)
+            else:
+                checkpointer.is_setup = True
         graph = _build(checkpointer)
         snapshot = graph.get_state(config)
         return graph.invoke(None if snapshot and snapshot.next else initial, config)

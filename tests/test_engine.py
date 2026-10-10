@@ -2,6 +2,7 @@ import sqlite3
 import unittest
 
 import app
+from scripts.evaluate import FIXTURE as HELDOUT_FIXTURE, evaluate as evaluate_heldout
 
 
 class DiagnosisTests(unittest.TestCase):
@@ -23,6 +24,18 @@ class DiagnosisTests(unittest.TestCase):
         self.assertTrue(all(item["correct"] for item in labeled))
         self.assertEqual(len(unlabeled), 8)
         self.assertTrue(all(item["status"] == "inconclusive" for item in unlabeled))
+
+    def test_heldout_signature_compositions_measure_cause_selection_and_abstention(self):
+        import json
+
+        report = evaluate_heldout(json.loads(HELDOUT_FIXTURE.read_text(encoding="utf-8"))["cases"])
+        self.assertEqual(report["summary"]["case_count"], 17)
+        self.assertEqual(report["summary"]["supported_precision"], 1.0)
+        self.assertEqual(report["summary"]["supported_recall"], 1.0)
+        self.assertEqual(report["summary"]["abstention_precision"], 1.0)
+        self.assertEqual(report["summary"]["abstention_recall"], 1.0)
+        self.assertEqual(report["summary"]["false_supported"], 0)
+        self.assertIn("after evidence has been mapped", report["limitation"])
 
     def test_supported_diagnosis_links_each_observation(self):
         result = app.diagnose(self.records_for("db_pool"), [])

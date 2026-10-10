@@ -8,6 +8,32 @@
 4. Keep the listener on loopback for the local lab. Confirm the browser shows the local-environment indicator.
 5. Start the MCP server only as a local stdio process for a trusted client; it reads the same local data store.
 
+## Run the container behind TLS
+
+Build the image with `docker build -t opspilot:local .`. The image runs as UID 10001, stores both databases under `/data`, and reports readiness through its container healthcheck. A non-loopback listener is guarded by the same explicit opt-in as the Python launch. Keep a protected environment file outside source control with distinct operator and approver passwords, `OPSPILOT_ALLOW_REMOTE=true`, `OPSPILOT_PUBLIC_ORIGIN=https://ops.example.com`, and `OPSPILOT_COOKIE_SECURE=true`. Replace the example origin with the exact HTTPS origin.
+
+~~~sh
+docker run --detach --name opspilot --restart unless-stopped \
+  --publish 127.0.0.1:8765:8765 \
+  --volume opspilot-data:/data \
+  --env-file /etc/opspilot/opspilot.env \
+  ghcr.io/owner/opspilot:v1.0.0
+~~~
+
+Replace the sample image path and tag with the published image. Terminate TLS at a trusted reverse proxy on the host and proxy to `127.0.0.1:8765`. Use a protected secret store for the environment file and restrict access to the Docker socket and data volume. GitHub Actions runs the Python tests and static checks before the pull-request image build or version-tag GHCR publication. Restore into a separate volume and change the deployment's data mount only after verifying recovered incident history and checkpoint status.
+
+## Connect Prometheus metrics
+
+Set `OPSPILOT_PROMETHEUS_URL` to an HTTPS Prometheus base URL (HTTP is accepted only for loopback), and set `OPSPILOT_PROMETHEUS_QUERIES` to a JSON object mapping supported metric signal IDs to PromQL expressions. Expressions must scope to the signal's registered service and filter to the condition that should count as evidence. For example, adapt the metric name and labels to the source before using:
+
+~~~powershell
+$env:OPSPILOT_PROMETHEUS_URL = "https://prometheus.example"
+$env:OPSPILOT_PROMETHEUS_QUERIES = '{"metric.db_pool_saturated":"checkout_db_pool_utilization{service_id=\"checkout\"} > 0.9"}'
+$env:OPSPILOT_PROMETHEUS_TOKEN = "<read-only bearer token>"
+~~~
+
+The reader sends incident-window range queries with redirects disabled, a five-second per-request timeout, a 15-second total query budget, a one-megabyte response limit, at most 25 samples per query, and a maximum seven-day window. It records no returned label values. An empty query result means no matching evidence; a source error is recorded as unavailable and prevents a supported diagnosis. Test every configured expression against the provider's own query UI before enabling it. Logs, traces, and change records continue to use the normalized evidence intake contract.
+
 ## Investigation and action
 
 - A missing or unavailable source should lower confidence and keep the result inconclusive. Inspect tool errors and provenance before acting.
@@ -24,7 +50,17 @@ The backup utility uses SQLite's online backup API so it can read a database whi
 python scripts/backup.py --output-dir D:\OpsPilotBackups
 ~~~
 
-The printed directory contains the database files and manifest.json. Protect and encrypt that directory using the host's backup controls. Before a restore, stop OpsPilot, compare each manifest hash with Get-FileHash, preserve the existing data directory, then copy the chosen database files into a new data directory and start the app against it. Rehearse restore with a disposable copy before treating backups as a recovery guarantee.
+The printed directory contains the database files and manifest.json. Protect and encrypt that directory using the host's backup controls. Restore validates the manifest, SHA-256 hashes, and SQLite integrity, and refuses to overwrite an existing directory. Rehearse with a new disposable path:
+
+~~~powershell
+python scripts/backup.py --restore-from "D:\OpsPilotBackups\opspilot-20261010T120000000000Z" --data-dir "D:\OpsPilotRestore\rehearsal-01"
+$env:OPSPILOT_DATA_DIR = "D:\OpsPilotRestore\rehearsal-01"
+python app.py
+~~~
+
+Replace the example backup directory with the exact folder printed by the backup command.
+
+Check the restored incident history and investigation status before switching any operator to that data directory. The backup is a point-in-time copy of each database, not a coordinated transaction across the incident and checkpoint stores; rehearse recovery before treating it as a recovery guarantee.
 
 ## Common failures
 
@@ -41,7 +77,7 @@ The printed directory contains the database files and manifest.json. Protect and
 
 ## Recovery and incident data
 
-Incident records and workflow checkpoints are separate stores. Back up both together. A valid incident database backup without its corresponding checkpoint file preserves completed records but may not resume an in-flight graph. There is no built-in automated restore, point-in-time recovery, HA, or cross-replica locking.
+Incident records and workflow checkpoints are separate stores. Back up both together. A valid incident database backup without its corresponding checkpoint file preserves completed records but may not resume an in-flight graph. Restore is a local command, not an automated failover or point-in-time recovery service. HA and cross-replica locking are not provided.
 
 ## Operational limits
 

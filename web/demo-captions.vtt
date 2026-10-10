@@ -6,8 +6,8 @@ investigation, with people still in control of
 change.
 
 00:00:07.813 --> 00:00:16.516
-This Checkout API case is a seeded local replay. The
-evidence is synthetic, not production telemetry.
+Follow a Checkout API incident as OpsPilot gathers
+the evidence behind the alert.
 
 00:00:16.896 --> 00:00:26.004
 The investigator reads only incident-scoped
@@ -26,14 +26,13 @@ explanations remain visible.
 
 00:00:45.940 --> 00:00:59.318
 OpsPilot proposes one typed, allowlisted action:
-restore the seeded pool baseline to sixty-four
+restore the connection pool to sixty-four
 connections. The investigator cannot write, approve,
 or execute it.
 
 00:00:59.698 --> 00:01:08.096
 A different approver reviews the exact parameters.
-Then the operator runs it once, only in the
-simulator.
+Then an operator runs the approved change once.
 
 00:01:08.476 --> 00:01:16.964
 Server-owned checks decide if the incident resolves.

@@ -13,13 +13,13 @@ These diagrams describe the implementation in this repository. The SVG files are
 
 The runtime is one Uvicorn worker serving the static browser UI and FastAPI ASGI shell. The versioned API adapter applies a streaming 64 KiB body cap, then dispatches the existing synchronous `Handler.route` through Starlette's threadpool. The handler owns route validation, role checks, sessions, incident operations, and remediation endpoints.
 
-The investigation is an in-request LangGraph `StateGraph`. Its nodes resolve an incident's service dependency scope, read service context, then gather logs, metrics, traces, deployment events, and configuration events in sequence. The graph imports `backend.investigation_tools` directly. The separate stdio MCP server wraps the same read-only catalog for a local MCP host; the graph does not call the MCP server.
+The investigation is an in-request LangGraph `StateGraph`. It resolves an incident's service dependency scope, then gathers logs, metrics, traces, and change observations once. Evidence can come from the replay fixture or from normalized observations submitted at incident creation, by the authenticated alert webhook, or through the pre-investigation evidence route. The fixture catalog does not separate deployment and configuration changes into distinct sources. The graph imports `backend.investigation_tools` directly. The separate stdio MCP server wraps the same read-only catalog for a local MCP host; the graph does not call the MCP server.
 
-The tool catalog reads the service registry and incident scenario observations stored in the operational SQLite database. Queries are incident-scoped, limited to 50 records, and bounded to a seven-day window. Missing or unavailable sources remain explicit tool errors.
+The tool catalog reads the service registry, replay plans, and submitted incident observations stored in SQLite. Queries are incident-scoped, limited to 50 records, and bounded by the accepted seven-day input window. Source labels and observation text are caller-supplied; they are not independently verified. A submitted `signal_id` must match a known signature and evidence kind. Missing evidence or unsupported text remains inconclusive.
 
 The deterministic signature engine is authoritative. It abstains when evidence spans fewer than two kinds, any tool error occurred, or a competing signature is too close. If enabled by explicit data consent and valid HTTPS configuration, an OpenAI-compatible endpoint may reorder the fixed candidates and annotate missing evidence. The response cannot add a cause or replace the deterministic root-cause decision; provider failures fall back to the deterministic result.
 
-Operational records (incidents, evidence, events, approvals, actions, verification, evaluations, and audit records) live in `data/opspilot.db`. LangGraph checkpoints use `data/workflow-checkpoints.sqlite` by default; `OPSPILOT_CHECKPOINT_DATABASE_URL` switches only the checkpoint store to PostgreSQL. The incident store remains SQLite.
+Operational records (incidents, submitted observations, investigation evidence, events, approvals, actions, verification, evaluations, and audit records) live in `data/opspilot.db`. A versioned migration preserves old evidence while allowing multiple records of one kind per run. LangGraph checkpoints use `data/workflow-checkpoints.sqlite` by default; `OPSPILOT_CHECKPOINT_DATABASE_URL` switches only the checkpoint store to PostgreSQL. The incident store remains SQLite.
 
 Remediation is a separate operator-requested API call. A proposal requires a supported diagnosis matching an active seeded replay and an allowlisted action. The exact typed parameters are hashed and immutable; a different approver must approve them within 30 minutes. A different operator executes the action once against simulator state. Server-owned health, symptom, and action-scope checks control resolution.
 
@@ -36,14 +36,14 @@ Remediation is a separate operator-requested API call. A proposal requires a sup
 
 - Operator and approver use separate shared local credentials and fixed roles. Session tokens are stored hashed; browser sessions use HTTP-only, SameSite cookies, eight-hour expiry, CSRF tokens, and same-origin checks for mutations.
 - Mutating browser/API requests require a valid session and CSRF token. Request bodies are capped at 64 KiB and API objects reject unknown fields. Login throttling is in-process.
-- The optional alert webhook requires a bearer token, validates its schema, deduplicates correlation IDs, and rejects the same ID with a different payload.
+- The optional alert webhook requires a bearer token, accepts at most 25 normalized observations per incident, validates dependency and signature scope, deduplicates correlation IDs, and rejects the same ID with a different payload.
 - Read tools enforce incident dependency scope, result limits, and time windows. Tool failures are persisted and prevent a supported diagnosis.
 - Investigation idempotency keys reuse completed results and let a failed run attempt checkpoint recovery with the original key. Recovery behavior is backend-dependent and needs validation for each deployment.
 - Proposal parameters are immutable and approval is bound to their hash. Execution is once-only and verification is server-owned; a failed check does not resolve the incident.
 
 ### Current deployment profile
 
-- Evidence comes from incident and scenario records in SQLite. Reads are bounded by dependency scope, record count, and time window.
+- Evidence comes from replay records or caller-submitted observations in SQLite. Reads are bounded by dependency scope, record count, and input age; the repository has no provider-specific collector.
 - The action executor applies allowlisted changes to simulator state and records server-side verification.
 - The runtime uses one Uvicorn worker, separate shared operator and approver accounts, and SQLite for operational records. Checkpoints can use a separate PostgreSQL store.
 - Optional model review sends bounded, heuristically redacted evidence to the configured HTTPS provider only after explicit consent.
@@ -51,11 +51,11 @@ Remediation is a separate operator-requested API call. A proposal requires a sup
 
 ## 02 — End-to-end execution flow
 
-The representative flow starts when an authenticated operator invokes `POST /api/v1/incidents/{id}/investigate` for an existing incident. Starting a replay and receiving a webhook are separate operations: a webhook creates and records an incident, but does not automatically start the investigation.
+The representative flow starts when an authenticated operator invokes `POST /api/v1/incidents/{id}/investigate` for an existing incident. An operator can include observations when creating an incident or attach them before the first investigation. Starting a replay and receiving a webhook are separate operations: a webhook can create an incident and store optional observations, but does not automatically start the investigation.
 
 The ASGI adapter enforces the body limit and passes the request to the synchronous handler in a threadpool. The handler checks session, role, CSRF/origin, JSON fields, incident state, and the idempotency key. A completed run with the same key returns its stored result. Otherwise, the handler persists an investigation ID and calls the graph with that ID as the checkpoint thread ID.
 
-The graph reads context and evidence in order, deduplicates observations, retains tool errors, and evaluates the deterministic cause signatures. A cause is supported only with at least two evidence kinds, no tool errors, and a lead of at least two evidence kinds over a competing signature. Otherwise, the result is inconclusive and cannot produce a proposal.
+The graph reads bounded evidence in order, deduplicates observations, retains tool errors, and evaluates the deterministic cause signatures. Submitted text without a recognized `signal_id` does not match a cause by itself. A cause is supported only with at least two evidence kinds, no tool errors, and a lead of at least two evidence kinds over a competing signature. Otherwise, the result is inconclusive and cannot produce a proposal.
 
 The final diagnosis, evidence, tool outcomes, timeline events, and audit entries are committed before the API returns JSON to the console. Optional model review runs only after deterministic candidates exist. A timeout or invalid model response does not block the request or change the deterministic cause.
 
@@ -71,7 +71,7 @@ After a supported result, the operator must explicitly request a proposal. The s
 
 “The browser is static HTML, CSS, and JavaScript served by a single-process FastAPI/Uvicorn app. The API adapter caps request bodies and hands the existing synchronous route handler to Starlette's threadpool. The handler applies role, session, CSRF, input, and lifecycle checks, then writes incident and audit records to SQLite.
 
-For investigation, the operator supplies an idempotency key. OpsPilot persists a run ID and uses it as the LangGraph checkpoint thread ID. The graph resolves the incident's allowed dependency scope, reads service context, then gathers logs, metrics, traces, deployment events, and configuration events from the shared bounded catalog. The graph calls that Python catalog directly; a separate stdio MCP server exposes the same read-only functions to local MCP clients.
+For investigation, the operator supplies an idempotency key. OpsPilot persists a run ID and uses it as the LangGraph checkpoint thread ID. The graph resolves the incident's allowed dependency scope, then gathers logs, metrics, traces, and one combined change-event stream from the shared bounded catalog. This avoids reading the same undifferentiated deployment/configuration records twice. The graph calls that Python catalog directly; a separate stdio MCP server exposes the same read-only functions to local MCP clients.
 
 The deterministic diagnosis engine requires cross-source support and abstains on source errors or close competing signatures. If explicit consent and HTTPS provider settings are present, the optional model sees bounded, heuristically redacted observations and a fixed candidate list. It may reorder candidates but cannot invent the cause or authorize action.
 

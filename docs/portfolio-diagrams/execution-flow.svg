@@ -97,17 +97,17 @@
 
   <rect x="400" y="675" width="300" height="205" rx="17" class="card"/>
   <circle cx="432" cy="712" r="17" fill="#EAF0FF"/><text x="432" y="718" text-anchor="middle" class="chip" fill="#3154C6">02</text>
-  <text x="461" y="719" class="cardtitle">Read service context</text>
-  <text x="426" y="759" class="body">Registry · health ·</text>
-  <text x="426" y="789" class="body">dependency map</text>
-  <text x="426" y="843" class="tiny">Bounded read-only calls</text>
+  <text x="461" y="719" class="cardtitle">Read incident logs</text>
+  <text x="426" y="759" class="body">Incident-correlated</text>
+  <text x="426" y="789" class="body">observations</text>
+  <text x="426" y="843" class="tiny">Bounded read-only query</text>
   <path d="M700 775 H725" class="line"/>
 
   <rect x="733" y="675" width="414" height="205" rx="17" class="card"/>
   <circle cx="765" cy="712" r="17" fill="#EAF0FF"/><text x="765" y="718" text-anchor="middle" class="chip" fill="#3154C6">03</text>
-  <text x="794" y="719" class="cardtitle">Gather evidence in order</text>
-  <text x="759" y="759" class="body">Logs → metrics → traces</text>
-  <text x="759" y="789" class="body">→ deployments → configuration</text>
+  <text x="794" y="719" class="cardtitle">Read remaining evidence</text>
+  <text x="759" y="759" class="body">Metrics → traces</text>
+  <text x="759" y="789" class="body">→ deployment / config changes</text>
   <text x="759" y="822" class="small">Up to 50 records · 7-day window</text>
   <rect x="759" y="837" width="365" height="28" rx="14" fill="#EEF4FF"/>
   <text x="941" y="857" text-anchor="middle" class="tiny">SCN-001 sample: pool 32/32 · trace wait 1,840 ms</text>
