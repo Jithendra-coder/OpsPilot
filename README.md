@@ -27,7 +27,7 @@ The [diagram folder](docs/portfolio-diagrams/README.md) contains editable Mermai
 - Request metrics, optional OTLP traces and metrics, and a verified SQLite backup utility.
 - A checksum-verified restore command that only writes to a new data directory.
 - A non-root container image with a database readiness healthcheck. CI builds the image on pull requests, and a version tag publishes it to GitHub Container Registry.
-- A minimal responsive console for overview, incidents, service topology, investigation, approvals, and replay/evaluation.
+- A minimal responsive console and role-aware interactive CLI for overview, incidents, service topology, investigation, approvals, and replay/evaluation.
 
 ## Technology stack
 
@@ -48,7 +48,7 @@ app.py                  Incident, API, and persistence logic
 backend/                ASGI adapter, investigation graph, evidence, and integrations
 web/                    Console, introduction, and captioned demo video
 tests/                  Unit and API integration tests with small fixtures
-scripts/                Backup, evaluation, and loopback smoke utilities
+scripts/                Interactive CLI, backup, evaluation, and smoke utilities
 docs/                   API, architecture, security, operations, and audit material
 .github/workflows/      Python verification, container build, and tag release jobs
 Dockerfile              Non-root container image
@@ -60,7 +60,7 @@ requirements.txt        Runtime dependencies
 Requirements: Python 3.11–3.14 and Node.js 24 for the JavaScript syntax check. The API and console are served together.
 
 ~~~powershell
-py -3.10 -m venv .venv
+py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
@@ -78,6 +78,20 @@ $env:OPSPILOT_PASSWORD = (python -c "import secrets; print(secrets.token_urlsafe
 $env:OPSPILOT_APPROVER_PASSWORD = (python -c "import secrets; print(secrets.token_urlsafe(32))")
 python app.py
 ~~~
+
+## Use the interactive CLI
+
+The CLI is an authenticated terminal client for the same API and permissions used by the console. Keep the API running in one terminal, then open a second terminal in the project folder:
+
+~~~powershell
+python -m scripts.cli
+~~~
+
+Sign in with the operator or approver password printed or configured for the running server. The CLI keeps password input hidden and offers role-appropriate menus for overview, incident intake and reports, seeded replays, investigation, approvals, simulator-only execution, notes, and evaluation. It uses the existing session cookie and CSRF token; the API remains responsible for authorization and safety checks. Press `0` to revoke the session and exit.
+
+To review an action with the separate approver account, exit and start the CLI again with the approver password. The operator account cannot approve its own proposal, and the approver account cannot execute it.
+
+To connect to a different instance, use `python -m scripts.cli --url https://opspilot.example` or set `OPSPILOT_URL`. Remote URLs must use HTTPS. The CLI does not start a server; start the API with `python app.py` first. All remediation remains limited to the isolated simulator.
 
 By default, durable incident data is in data/opspilot.db and workflow checkpoints are in data/workflow-checkpoints.sqlite. Set OPSPILOT_DATA_DIR to move both local stores. The service listens on 127.0.0.1:8765 by default.
 
@@ -113,6 +127,7 @@ With the local server running, `python -m scripts.smoke_load --requests 200 --co
 | --- | --- |
 | OPSPILOT_DATA_DIR | Directory for the incident database and default LangGraph checkpoint database. |
 | OPSPILOT_HOST / OPSPILOT_PORT | Listener address and port. Defaults to 127.0.0.1 / 8765. |
+| OPSPILOT_URL | Optional API origin used by the interactive CLI. Defaults to http://127.0.0.1:8765; remote URLs must use HTTPS. |
 | OPSPILOT_PASSWORD / OPSPILOT_APPROVER_PASSWORD | Distinct operator and approver credentials, at least 16 characters each. If absent, random values are printed at startup. |
 | OPSPILOT_ALERT_WEBHOOK_TOKEN | Optional bearer credential for alert intake; must be at least 32 characters. |
 | OPSPILOT_CHECKPOINT_DATABASE_URL | Optional PostgreSQL URL for LangGraph checkpoints only. Incident and approval records remain in SQLite. |
