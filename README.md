@@ -1,152 +1,366 @@
 # OpsPilot
 
-OpsPilot is a local incident investigation and controlled-remediation platform. It combines an auditable incident workspace, a checkpointed LangGraph investigation, bounded read-only MCP tools, an evidence-linked diagnosis engine, a two-person approval flow, and an isolated fault replay lab.
+OpsPilot is an incident investigation and controlled-remediation application for SRE and backend teams. It combines incident intake, scoped evidence review, deterministic root-cause analysis, a checkpointed investigation workflow, independent approval, and verified actions in an isolated simulator.
 
-OpsPilot demonstrates a safety-gated incident workflow for SRE and backend teams. Operators inspect scoped evidence and deterministic diagnosis; remediation remains a separate simulator-only action that requires independent approval and server-side verification.
+**Investigate with evidence. Keep remediation behind a human approval boundary.**
 
-## Architecture
+Use it as a browser console, interactive terminal CLI, or API. Optional integrations are operator-configured: Prometheus metrics, alert and normalized-evidence intake, and a local read-only MCP server.
 
-The browser UI and versioned API run in one FastAPI/Uvicorn process. SQLite stores incidents and audit history; LangGraph checkpoints use SQLite by default, with PostgreSQL available for checkpoints. Investigation tools are read-only, and the optional model can only rank deterministic candidates after explicit consent.
+## Quick start
 
-![OpsPilot system architecture](docs/portfolio-diagrams/system-architecture.svg)
+### Requirements
 
-![OpsPilot incident execution flow](docs/portfolio-diagrams/execution-flow.svg)
+- Python 3.11–3.14
+- Git to clone the repository
+- Node.js 24 only for the JavaScript syntax check
 
-The [diagram folder](docs/portfolio-diagrams/README.md) contains editable Mermaid sources and PNG exports.
+The API and browser console run together. The CLI-only package needs no Node.js or frontend assets.
 
-## What works today
+### Windows PowerShell
 
-- Incident intake from the console, versioned API, or an authenticated alert webhook; manual and webhook intake can include scoped evidence.
-- Incident lifecycle, comments, evidence, investigation history, audit timeline, and JSON report export.
-- Eight registered services and 36 deterministic cases, including missing, contradictory, multi-fault, and instruction-like evidence.
-- A LangGraph workflow with a durable SQLite checkpointer; a PostgreSQL checkpointer can be configured independently.
-- A read-only Prometheus HTTP adapter for operator-configured PromQL signals, bounded by service scope, a seven-day incident window, response size, and request timeout.
-- Ten bounded, read-only MCP tools over scenario evidence or caller-submitted normalized observations.
-- Optional, HTTPS-only OpenAI-compatible hypothesis ranking. It is disabled unless data transfer is explicitly enabled, and it cannot select an unsupported cause or execute an action.
-- Immutable, typed remediation proposals for eligible seeded faults. A distinct approver must approve the exact parameters; a different operator executes the action against the simulator; server-side checks determine whether the incident can resolve.
-- Request metrics, optional OTLP traces and metrics, and a verified SQLite backup utility.
-- A checksum-verified restore command that only writes to a new data directory.
-- A non-root container image with a database readiness healthcheck. CI builds the image on pull requests, and a version tag publishes it to GitHub Container Registry.
-- A minimal responsive console and role-aware interactive CLI for overview, incidents, service topology, investigation, approvals, and replay/evaluation.
-
-## Technology stack
-
-| Area | Technology |
-| --- | --- |
-| UI | Static HTML, CSS, and JavaScript |
-| API and server | FastAPI, Uvicorn, and Starlette |
-| Investigation | LangGraph with persistent SQLite checkpoints; optional PostgreSQL checkpoints |
-| Operational storage | SQLite |
-| Evidence adapters | Bounded read-only tools, optional Prometheus HTTP API, and a local stdio MCP server |
-| Optional model review | OpenAI-compatible HTTPS endpoint; consent-gated candidate ranking |
-| Observability | Prometheus client and optional OpenTelemetry OTLP exporter |
-
-## Project layout
-
-```text
-app.py                  Incident, API, and persistence logic
-backend/                ASGI adapter, investigation graph, evidence, and integrations
-web/                    Console, introduction, and captioned demo video
-tests/                  Unit and API integration tests with small fixtures
-scripts/                Interactive CLI, backup, evaluation, and smoke utilities
-docs/                   API, architecture, security, operations, and audit material
-.github/workflows/      Python verification, container build, and tag release jobs
-Dockerfile              Non-root container image
-requirements.txt        Runtime dependencies
+```powershell
+git clone https://github.com/Jithendra-coder/OpsPilot.git
+Set-Location OpsPilot
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app.py
 ```
 
-## Run locally
+Keep this server terminal open. At first start, copy the one-time operator and approver passwords printed there. They are generated in memory and change after restart unless explicitly configured. Open <http://127.0.0.1:8765>, then select **Get started** for the console. For the CLI, open a second terminal in the repository:
 
-Requirements: Python 3.11–3.14 and Node.js 24 for the JavaScript syntax check. The API and console are served together.
+```powershell
+.\.venv\Scripts\python.exe -m scripts.cli
+```
 
-~~~powershell
+### macOS and Linux
+
+```sh
+git clone https://github.com/Jithendra-coder/OpsPilot.git
+cd OpsPilot
+python3.11 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python app.py
+```
+
+In a second terminal run `.venv/bin/python -m scripts.cli`. The API listens on loopback at `127.0.0.1:8765` by default.
+
+### Repeatable local credentials
+
+Use distinct random passwords of at least 16 characters. These PowerShell commands keep values in the current process environment, not in the repository:
+
+```powershell
+$env:OPSPILOT_PASSWORD = (.\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))")
+$env:OPSPILOT_APPROVER_PASSWORD = (.\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))")
+.\.venv\Scripts\python.exe app.py
+```
+
+On macOS/Linux, generate values with Python or load them from a protected secret manager. Do not commit credentials. If unset, use the one-time values printed by the server.
+
+### Container deployment (full repository)
+
+The CLI-only bundle does not include a Dockerfile or web assets. From the full repository, build the image:
+
+```sh
+docker build -t opspilot:local .
+```
+
+The container binds internally to `0.0.0.0`, so startup requires distinct configured operator/approver passwords (16+ characters), `OPSPILOT_ALLOW_REMOTE=true`, an exact HTTPS `OPSPILOT_PUBLIC_ORIGIN`, and `OPSPILOT_COOKIE_SECURE=true`. Put these values in a protected environment file, terminate TLS at a trusted reverse proxy, and keep the published app port loopback-only:
+
+```dotenv
+OPSPILOT_PASSWORD=<unique-random-operator-password>
+OPSPILOT_APPROVER_PASSWORD=<different-random-approver-password>
+OPSPILOT_ALLOW_REMOTE=true
+OPSPILOT_PUBLIC_ORIGIN=https://ops.example.com
+OPSPILOT_COOKIE_SECURE=true
+```
+
+Replace the example origin and passwords. Keep this file out of source control and restrict its filesystem permissions.
+
+```sh
+docker run --detach --name opspilot --restart unless-stopped \
+  --publish 127.0.0.1:8765:8765 \
+  --volume opspilot-data:/data \
+  --env-file /etc/opspilot/opspilot.env \
+  opspilot:local
+```
+
+See the [runbook](docs/runbook.md) for reverse-proxy and secret-storage requirements.
+
+## CLI-only package
+
+The CLI connects to an OpsPilot API. The bundle also contains the minimal Python API server needed to run a local instance. It excludes the browser UI, demo media, README/docs, tests, Git metadata, and package-builder script.
+
+### Build it
+
+From the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.package_cli
+```
+
+This produces `dist/opspilot-cli/` and `dist/opspilot-cli.zip`. The package folder contains exactly:
+
+```text
+app.py
+requirements.txt
+backend/                 API, investigation, evidence, integrations
+  __init__.py
+  asgi.py
+  investigation_tools.py
+  llm.py
+  mcp_server.py
+  prometheus.py
+  telemetry.py
+  workflow.py
+scripts/
+  __init__.py
+  backup.py
+  cli.py
+  evaluate.py
+  smoke_load.py
+```
+
+The builder verifies the folder and ZIP contents and refuses to overwrite existing outputs. Remove both generated paths before rebuilding. To pick another new destination:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.package_cli --output C:\OpsPilot\opspilot-cli
+```
+
+### Install and run on Windows
+
+Extract the folder or ZIP to `C:\OpsPilot\opspilot-cli`, then run:
+
+```powershell
+Set-Location C:\OpsPilot\opspilot-cli
 py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python app.py
-~~~
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app.py
+```
 
-Open http://127.0.0.1:8765 for the OpsPilot introduction. Choose **Get started** to open the authenticated console at http://127.0.0.1:8765/console. The console remains directly available at `/index.html` for existing bookmarks. On first start, the terminal prints separate one-time operator and approver passwords if they are not configured. Keep the terminal open until both values have been copied. These generated credentials change on the next process start; existing sessions expire after eight hours.
+Keep the API terminal open. In another terminal, run:
 
-The introduction includes the local, captioned demo at `/demo.webm`.
+```powershell
+Set-Location C:\OpsPilot\opspilot-cli
+.\.venv\Scripts\python.exe -m scripts.cli
+```
 
-For repeatable local credentials, set two different random values before starting. Keep them out of source control and logs.
+### Install and run on macOS/Linux
 
-~~~powershell
-$env:OPSPILOT_PASSWORD = (python -c "import secrets; print(secrets.token_urlsafe(32))")
-$env:OPSPILOT_APPROVER_PASSWORD = (python -c "import secrets; print(secrets.token_urlsafe(32))")
-python app.py
-~~~
+Extract the folder or ZIP to `/opt/opspilot-cli`, then run:
 
-## Use the interactive CLI
+```sh
+cd /opt/opspilot-cli
+python3.11 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python app.py
+```
 
-The CLI is an authenticated terminal client for the same API and permissions used by the console. Keep the API running in one terminal, then open a second terminal in the project folder:
+In a second terminal run `.venv/bin/python -m scripts.cli` from that package folder.
 
-~~~powershell
-python -m scripts.cli
-~~~
+The CLI checks readiness, prompts for a password without echoing it, uses the API session cookie and CSRF token, then revokes the session on exit. It does not start the API. Select another API origin with `--url` or `OPSPILOT_URL`:
 
-Sign in with the operator or approver password printed or configured for the running server. The CLI keeps password input hidden and offers role-appropriate menus for overview, incident intake and reports, seeded replays, investigation, approvals, simulator-only execution, notes, and evaluation. It uses the existing session cookie and CSRF token; the API remains responsible for authorization and safety checks. Press `0` to revoke the session and exit.
+```powershell
+.\.venv\Scripts\python.exe -m scripts.cli --url https://opspilot.example.com
+```
 
-To review an action with the separate approver account, exit and start the CLI again with the approver password. The operator account cannot approve its own proposal, and the approver account cannot execute it.
+Remote URLs require HTTPS; plain HTTP is allowed only for loopback. The API remains responsible for role checks and safety controls.
 
-To connect to a different instance, use `python -m scripts.cli --url https://opspilot.example` or set `OPSPILOT_URL`. Remote URLs must use HTTPS. The CLI does not start a server; start the API with `python app.py` first. All remediation remains limited to the isolated simulator.
+## Connect an existing service
 
-By default, durable incident data is in data/opspilot.db and workflow checkpoints are in data/workflow-checkpoints.sqlite. Set OPSPILOT_DATA_DIR to move both local stores. The service listens on 127.0.0.1:8765 by default.
+OpsPilot is a separate incident service, not an agent library that automatically installs into or instruments an application. Supported inputs are:
 
-## Verify the main flow
+1. **Alerts:** authenticated `POST /api/v1/webhooks/alerts`.
+2. **Normalized evidence:** send with an alert or attach to a manual incident before its first investigation. Logs, traces, and change events use this push contract; they have no provider-specific readers.
+3. **Prometheus:** configure the base URL and PromQL mappings to supported metric signal IDs. Queries are read-only and bounded by service scope and incident window.
+4. **MCP:** run `python -m backend.mcp_server` as a trusted stdio child process to expose ten read-only, incident-scoped tools.
 
-1. Sign in as operator and start the database-pool replay.
-2. Investigate; inspect the findings, evidence links, tool outcomes, and timeline.
-3. Propose the allowlisted action. Sign in separately as approver, review the exact parameters, and approve or reject it with an audit note.
-4. Sign in as a different operator, execute the approved action once, and confirm that server-recorded checks control resolution.
-5. Run the 36 seeded rule checks. They verify the in-catalog signature rules, not independent incident accuracy.
-6. Run `python -m scripts.evaluate` for 17 separately authored evidence-composition cases, including missing, unknown, conflicting, and unavailable-source evidence. This evaluates diagnosis after signal mapping; it does not measure raw telemetry classification or provider mapping quality.
-7. Use the remaining replay cases to inspect missing-source, unavailable-tool, conflict, multi-fault, and untrusted-log behavior.
+Map your service into OpsPilot's service registry, use actual event timestamps, choose supported signal IDs, and validate source mappings against known events. Unknown signals remain evidence but cannot match a deterministic diagnosis. Observation text and provenance are caller-provided and not independently verified.
 
-## Evaluation
+## Incident workflow and demo path
 
-The bundled catalog checks cover 28 labeled causes and 8 cases expected to remain inconclusive. The separately authored 17-case composition set has 13/13 expected supported decisions and 4/4 expected abstentions. These results measure rule consistency and cause selection after signal mapping; they do not establish classification accuracy on raw operational telemetry. See the [engineering audit](docs/engineering-audit.md) for scope and remaining verification work.
+1. Start a seeded replay, create a manual incident, or submit an authenticated alert.
+2. Review service scope, dependencies, evidence timestamps/provenance, and unavailable tools.
+3. Run the read-only investigation. It gathers bounded observations, checks deterministic signatures, and records findings, evidence, tool outcomes, and timeline. Insufficient or conflicting evidence stays inconclusive.
+4. Review the report and evidence before deciding what to do.
+5. For eligible seeded cases, an operator may request an allowlisted action. Proposal creation does not execute it.
+6. A separate approver reviews the exact parameters and approves or rejects with an audit note. The proposer cannot approve their own request.
+7. A different operator can execute an approved proposal once against the isolated simulator. Server-recorded verification controls resolution.
+8. Export the report, add audited notes, and back up incident/checkpoint data as needed.
 
-## Development checks
+Both CLI roles can view overview, incidents, reports, and notes. Operators can start replays, create incidents, investigate, propose actions, execute approved actions, and run seeded evaluations. Approvers can review and decide pending requests. For a demo, use `db_pool`: investigate, show the evidence-linked report, propose, approve from the other role, execute, and show server verification.
 
-~~~powershell
-python -m unittest discover -s tests
-python -m compileall -q app.py backend scripts
-node --check web\app.js
-~~~
+## API and integrations
 
-The test suite covers seeded rule consistency, held-out diagnosis/abstention, Prometheus response validation and intake wiring, normalized evidence scope, alert authentication and deduplication, login throttling, MCP boundaries, optional-LLM consent/redaction, independent approval, verification, idempotent execution, cold-start concurrent checkpoint recovery, schema migration, and backup/restore integrity. The GitHub Actions Python matrix runs these tests and static checks, then audits declared dependencies before a container build or release publish. Dependabot checks Python and GitHub Actions updates weekly. It is not a penetration, browser-automation, or hosted disaster-recovery certification.
+API base path: `/api/v1`. `GET /api/v1/health` is public; most other routes need a session cookie and CSRF token. The alert webhook uses a bearer token. See [API contracts](docs/api.md) for all routes and validation rules.
 
-With the local server running, `python -m scripts.smoke_load --requests 200 --concurrency 8` runs a loopback-only concurrent smoke against `/api/v1/health`. It reports latency and throughput for that endpoint; it is not a capacity test of investigations or external providers.
+### Alert intake example
 
-## Settings
+Set a random webhook token of at least 32 characters before starting the server:
+
+```powershell
+$env:OPSPILOT_ALERT_WEBHOOK_TOKEN = (.\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))")
+.\.venv\Scripts\python.exe app.py
+```
+
+Example request (replace service, event details, and correlation ID):
+
+```powershell
+$headers = @{
+  Authorization = "Bearer $env:OPSPILOT_ALERT_WEBHOOK_TOKEN"
+  "Content-Type" = "application/json"
+}
+$body = @{
+  title = "Checkout database pool saturated"
+  severity = "P1"
+  service_id = "checkout"
+  description = "Checkout cannot acquire a database connection."
+  correlation_id = "alert-2026-10-11-001"
+  evidence = @(@{
+    kind = "metrics"
+    service_id = "checkout"
+    source = "checkout-pool-exporter"
+    observation = "All configured database connections are in use."
+    observed_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    severity = "critical"
+    signal_id = "metric.db_pool_saturated"
+  })
+} | ConvertTo-Json -Depth 8
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/api/v1/webhooks/alerts" -Headers $headers -Body $body
+```
+
+An incident accepts up to 25 records of kind `logs`, `metrics`, `traces`, or `changes`. Timestamps must be timezone-aware and within the prior seven days; observations are limited to 1,200 characters. Service/signal scope is checked. Exact retries with the same correlation ID deduplicate; reusing an ID with a different payload is rejected.
+
+### Prometheus configuration
+
+```powershell
+$env:OPSPILOT_PROMETHEUS_URL = "https://prometheus.example.com"
+$env:OPSPILOT_PROMETHEUS_QUERIES = '{"metric.db_pool_saturated":"checkout_db_pool_utilization{service_id=\"checkout\"} > 0.9"}'
+$env:OPSPILOT_PROMETHEUS_TOKEN = "<read-only-token>"
+.\.venv\Scripts\python.exe app.py
+```
+
+Each key must be a supported metric signal ID. Its expression must filter to that signal's registered service and return a series only when the condition is met. Limits: seven-day incident window, five seconds per query, 15 seconds total, one-megabyte response, and 25 samples per query. Validate expressions in Prometheus first. See the [operations runbook](docs/runbook.md).
+
+### Local MCP server
+
+For a trusted MCP client, run:
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.mcp_server
+```
+
+It runs over local stdio, does not open a network listener, and exposes bounded read-only tools. Configure the client with the absolute Python path and repository/package working directory.
+
+## Configuration
 
 | Variable | Purpose |
 | --- | --- |
-| OPSPILOT_DATA_DIR | Directory for the incident database and default LangGraph checkpoint database. |
-| OPSPILOT_HOST / OPSPILOT_PORT | Listener address and port. Defaults to 127.0.0.1 / 8765. |
-| OPSPILOT_URL | Optional API origin used by the interactive CLI. Defaults to http://127.0.0.1:8765; remote URLs must use HTTPS. |
-| OPSPILOT_PASSWORD / OPSPILOT_APPROVER_PASSWORD | Distinct operator and approver credentials, at least 16 characters each. If absent, random values are printed at startup. |
-| OPSPILOT_ALERT_WEBHOOK_TOKEN | Optional bearer credential for alert intake; must be at least 32 characters. |
-| OPSPILOT_CHECKPOINT_DATABASE_URL | Optional PostgreSQL URL for LangGraph checkpoints only. Incident and approval records remain in SQLite. |
-| OPSPILOT_PROMETHEUS_URL | Optional Prometheus base URL. HTTPS is required except for loopback HTTP. |
-| OPSPILOT_PROMETHEUS_QUERIES | JSON object mapping supported metric signal IDs to PromQL expressions. Configure expressions to return a series only when that signal's condition is met, and scope each expression to the service named by the signal. |
-| OPSPILOT_PROMETHEUS_TOKEN | Optional bearer token for the Prometheus API. |
-| OPSPILOT_ALLOW_REMOTE | Must equal `true` to bind beyond loopback; remote mode also requires configured credentials, an HTTPS public origin, and Secure cookies. |
-| OPSPILOT_PUBLIC_ORIGIN | The HTTPS origin used by a remote deployment behind its TLS proxy. |
-| OPSPILOT_COOKIE_SECURE | Must equal `true` when the configured public origin uses HTTPS. |
-| OTEL_EXPORTER_OTLP_ENDPOINT | Optional OTLP HTTP endpoint for workflow API traces and metrics. |
-| OPSPILOT_LLM_DATA_CONSENT | Must equal true before evidence observations can be sent to an external model provider. |
-| OPSPILOT_LLM_API_KEY / OPSPILOT_LLM_MODEL / OPSPILOT_LLM_BASE_URL | Optional provider configuration. The base URL must use HTTPS. |
+| `OPSPILOT_DATA_DIR` | Incident DB and default checkpoint DB directory; defaults to `data/` beside `app.py`. |
+| `OPSPILOT_HOST` / `OPSPILOT_PORT` | Listener address/port; defaults to `127.0.0.1` / `8765`. |
+| `OPSPILOT_PASSWORD` / `OPSPILOT_APPROVER_PASSWORD` | Distinct credentials, at least 16 characters; random values print at startup if unset. |
+| `OPSPILOT_URL` | CLI API origin; defaults to loopback. Remote origins must use HTTPS. |
+| `OPSPILOT_ALERT_WEBHOOK_TOKEN` | Optional webhook bearer token, at least 32 characters. |
+| `OPSPILOT_CHECKPOINT_DATABASE_URL` | Optional PostgreSQL URL for LangGraph checkpoints only; incidents remain in SQLite. |
+| `OPSPILOT_PROMETHEUS_URL` | Optional Prometheus URL; HTTP only for loopback. |
+| `OPSPILOT_PROMETHEUS_QUERIES` | JSON map of supported metric signal IDs to service-scoped PromQL. |
+| `OPSPILOT_PROMETHEUS_TOKEN` | Optional Prometheus bearer token; use read-only access. |
+| `OPSPILOT_ALLOW_REMOTE` | Set `true` for non-loopback; also needs configured credentials, HTTPS origin, and secure cookies. |
+| `OPSPILOT_PUBLIC_ORIGIN` | Exact HTTPS origin behind a trusted TLS proxy. |
+| `OPSPILOT_COOKIE_SECURE` | Set `true` when public origin uses HTTPS. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional OTLP HTTP endpoint for API traces and metrics. |
+| `OPSPILOT_LLM_DATA_CONSENT` | Must be `true` before evidence can be sent to an external model. |
+| `OPSPILOT_LLM_API_KEY` / `OPSPILOT_LLM_MODEL` / `OPSPILOT_LLM_BASE_URL` | Optional HTTPS OpenAI-compatible provider settings. |
 
-Alert intake is POST /api/v1/webhooks/alerts with an Authorization: Bearer header. Repeated correlation IDs are deduplicated; a reused ID with a different payload is rejected.
+## Development and verification
 
-See the [engineering audit](docs/engineering-audit.md), [API contracts](docs/api.md), [architecture](docs/architecture.md), [security boundary](docs/security.md), and [operations runbook](docs/runbook.md).
+Run from the repository root:
 
-## Deployment boundary
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+.\.venv\Scripts\python.exe -m compileall -q app.py backend scripts
+node --check web\app.js
+.\.venv\Scripts\python.exe -m scripts.evaluate
+.\.venv\Scripts\python.exe -m scripts.package_cli --output "$env:TEMP\opspilot-cli-check"
+```
 
-The Prometheus adapter reads configured metric signals. Logs, traces, and change events enter through authenticated normalized-evidence intake, and operators own the signal mappings. Incidents are stored in SQLite, access uses two shared local accounts, and approved changes affect simulator state. Shared deployment requires managed identity, hosted storage, and deployment-specific security testing; see the security and architecture docs.
+The seeded evaluation checks signature consistency. A separate 17-case composition set checks decisions after signals have already been mapped. Neither establishes field accuracy on raw telemetry. Tests cover API behavior, evidence scope, authorization, approval, verification, checkpoint recovery, and backup/restore. CI runs the Python test/static checks, dependency audit, and container build. See [engineering audit](docs/engineering-audit.md) for scope and results.
 
-The container requires explicit operator and approver passwords, remote-bind opt-in, an HTTPS public origin, and Secure cookies. Put it behind a trusted TLS reverse proxy, keep its published port loopback-only, and mount persistent storage at `/data`. Pushing a `vX.Y.Z` tag to the repository triggers the GHCR publish workflow.
+With the server running, smoke-test the loopback health endpoint from another terminal:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.smoke_load --requests 200 --concurrency 8
+```
+
+This is not a capacity test of investigations or external providers.
+
+## Backup and restore
+
+Back up incident data and checkpoints to a protected location:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/backup.py --output-dir D:\OpsPilotBackups
+```
+
+Restore verifies the manifest, SHA-256 hashes, and SQLite integrity and refuses to overwrite an existing directory:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/backup.py --restore-from "D:\OpsPilotBackups\<backup-folder>" --data-dir "D:\OpsPilotRestore\rehearsal-01"
+$env:OPSPILOT_DATA_DIR = "D:\OpsPilotRestore\rehearsal-01"
+.\.venv\Scripts\python.exe app.py
+```
+
+Check recovered incidents and checkpoints before routing operators to the restored directory. The databases are separate; this is not point-in-time recovery or automated failover. See the [runbook](docs/runbook.md).
+
+## Architecture and scope
+
+| Area | Implementation |
+| --- | --- |
+| Web UI | Static HTML, CSS, and JavaScript served by FastAPI. |
+| API | FastAPI, Uvicorn, and Starlette; versioned JSON endpoints. |
+| Incident/audit data | SQLite. |
+| Workflow | LangGraph with SQLite checkpoints by default; optional PostgreSQL checkpoint store. |
+| Diagnosis | Deterministic evidence-linked matching; optional model ranking only reorders supported candidates. |
+| Evidence tools | Ten bounded MCP tools, normalized observations, optional Prometheus metrics. |
+| Remediation | Typed allowlist, independent approver, different executor, idempotency, server-side simulator verification. |
+| Observability | Prometheus-format request metrics and optional OpenTelemetry OTLP export. |
+
+The registry has eight services. The replay catalog has 36 deterministic cases: 28 supported labels and 8 expected-inconclusive cases. The separate 17-case evidence-composition set currently checks 13 supported decisions and 4 expected abstentions after signal mapping. These fixture results do not measure raw telemetry classification accuracy. Prometheus metrics and submitted observations can come from the operator-configured environment.
+
+See [system architecture](docs/architecture.md), [security boundary](docs/security.md), and [API contracts](docs/api.md).
+
+## Production deployment boundary
+
+The container runs non-root, has a database readiness check, and can sit behind a trusted TLS reverse proxy. Remote binding requires explicit opt-in and secure configuration. This is not a turnkey multi-tenant hosted incident platform: it uses two shared role credentials, has no tenant/per-user authorization, stores incident records in SQLite, and executes only against the isolated simulator. Before connecting production workloads, add managed identity, tenant authorization, hosted storage/HA, and deployment-target testing, then complete an organization-specific security review. Never point the simulator action interface at a real service.
+
+## Troubleshooting
+
+| Symptom | Resolution |
+| --- | --- |
+| `py -3.11` not found | Install Python 3.11–3.14 and the launcher, or use an installed supported version with `python -m venv .venv`. |
+| Port 8765 busy | Set `OPSPILOT_PORT` before starting and pass the same origin to CLI `--url`. |
+| CLI cannot connect | Start `app.py` separately; check `GET http://127.0.0.1:8765/api/v1/health` returns `status: ok`. |
+| Sign-in fails | Use the credential printed/configured for the current server role. Generated values change after restart. |
+| Webhook returns 503 | Set `OPSPILOT_ALERT_WEBHOOK_TOKEN` to 32+ characters, then restart. |
+| Webhook returns 409 | Correlation ID reused with different body; use original payload or a new ID. |
+| Investigation inconclusive | Check signal IDs, timestamps, scope, conflicts, and unavailable-source results. Inconclusive findings cannot trigger actions. |
+| Action cannot be proposed | Only eligible seeded simulator cases can create proposals. |
+| Approval expired | Re-investigate and request a new proposal; approvals expire after 30 minutes. |
+| PostgreSQL did not move incident data | PostgreSQL configures workflow checkpoints only; incidents remain in SQLite. |
+
+## Repository layout
+
+```text
+app.py                  Incident, API, and persistence logic
+backend/                ASGI adapter, investigation graph, evidence, integrations
+web/                    Console, introduction, and captioned demo video
+tests/                  Unit and API integration tests
+scripts/                CLI, package builder, backup, evaluation, smoke utilities
+docs/                   API, architecture, security, operations, audit material
+.github/workflows/      Python verification, container build, tag release jobs
+Dockerfile              Non-root container image
+requirements.txt        Runtime dependencies
+```

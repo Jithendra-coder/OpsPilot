@@ -1236,7 +1236,7 @@ def main():
     except ValueError: raise SystemExit("OPSPILOT_HOST must be an IPv4 or IPv6 address.")
     if remote and (os.environ.get("OPSPILOT_ALLOW_REMOTE")!="true" or not os.environ.get("OPSPILOT_PASSWORD") or not os.environ.get("OPSPILOT_APPROVER_PASSWORD") or not os.environ.get("OPSPILOT_PUBLIC_ORIGIN","").startswith("https://") or os.environ.get("OPSPILOT_COOKIE_SECURE")!="true"):
         raise SystemExit("Non-loopback binding requires explicit remote opt-in, two configured credentials, an HTTPS public origin, and Secure cookies.")
-    print("OpsPilot console: http://"+HOST+":"+str(PORT) if not remote else "OpsPilot console: "+os.environ["OPSPILOT_PUBLIC_ORIGIN"],flush=True)
+    print("OpsPilot listening: http://"+HOST+":"+str(PORT) if not remote else "OpsPilot listening: "+os.environ["OPSPILOT_PUBLIC_ORIGIN"],flush=True)
     if os.environ.get("OPSPILOT_PASSWORD"): print("Operator sign-in uses OPSPILOT_PASSWORD.",flush=True)
     else:
         print("One-time local operator password: "+OPERATOR_PASSWORD,flush=True)

@@ -15,6 +15,13 @@ from backend import telemetry
 log = logging.getLogger("opspilot.api")
 
 
+def web_file(name: str, media_type: str | None = None, headers: dict | None = None):
+    path = core.WEB / name
+    if not path.is_file():
+        return JSONResponse({"error": {"code": "ui_not_installed", "message": "The browser UI is not included in this package."}}, status_code=404)
+    return FileResponse(path, media_type=media_type, headers=headers)
+
+
 @asynccontextmanager
 async def lifespan(_app):
     await run_in_threadpool(core.initialize)
@@ -69,13 +76,13 @@ async def observe_requests(request: Request, call_next):
 
 @app.get("/", include_in_schema=False)
 async def introduction():
-    return FileResponse(core.WEB / "intro.html", headers={"Cache-Control": "no-cache"})
+    return web_file("intro.html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/console", include_in_schema=False)
 @app.get("/index.html", include_in_schema=False)
 async def console():
-    return FileResponse(core.WEB / "index.html", headers={"Cache-Control": "no-cache"})
+    return web_file("index.html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/{asset_name}", include_in_schema=False)
@@ -92,7 +99,7 @@ async def web_asset(asset_name: str):
     if not mime:
         return JSONResponse({"error": {"code": "not_found", "message": "Page not found."}}, status_code=404)
     headers = {"Cache-Control": "public, max-age=3600"} if asset_name == "demo.webm" else {"Cache-Control": "no-cache"}
-    return FileResponse(core.WEB / asset_name, media_type=mime, headers=headers)
+    return web_file(asset_name, media_type=mime, headers=headers)
 
 
 @app.api_route("/api/v1/{path:path}", methods=["GET", "POST", "DELETE"])
@@ -140,4 +147,5 @@ async def versioned_api(path: str, request: Request):
     return await run_in_threadpool(dispatch)
 
 
-app.mount("/", StaticFiles(directory=str(core.WEB), html=True), name="console")
+if core.WEB.is_dir():
+    app.mount("/", StaticFiles(directory=str(core.WEB), html=True), name="console")
