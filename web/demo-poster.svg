@@ -42,6 +42,6 @@
   <text x="145" y="948" fill="#d0e1d5" font-family="Segoe UI,Arial,sans-serif" font-size="22">Scoped evidence</text>
   <text x="558" y="948" text-anchor="middle" fill="#d0e1d5" font-family="Segoe UI,Arial,sans-serif" font-size="22">Supported cause</text>
   <text x="970" y="948" text-anchor="middle" fill="#d0e1d5" font-family="Segoe UI,Arial,sans-serif" font-size="22">Human approval</text>
-  <text x="1382" y="948" text-anchor="middle" fill="#d0e1d5" font-family="Segoe UI,Arial,sans-serif" font-size="22">Verified recovery</text>
-  <text x="1775" y="1014" text-anchor="end" fill="#9db9a5" font-family="Segoe UI,Arial,sans-serif" font-size="18">EVIDENCE  ·  HUMAN APPROVAL  ·  VERIFIED RECOVERY</text>
+  <text x="1382" y="948" text-anchor="middle" fill="#d0e1d5" font-family="Segoe UI,Arial,sans-serif" font-size="22">Verified result</text>
+  <text x="1775" y="1014" text-anchor="end" fill="#9db9a5" font-family="Segoe UI,Arial,sans-serif" font-size="18">EVIDENCE  ·  HUMAN APPROVAL  ·  VERIFIED RESULT</text>
 </svg>

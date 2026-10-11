@@ -85,7 +85,7 @@ class ProductionFlowTests(unittest.TestCase):
         self.assertEqual(proposal["action_type"], "restore_db_pool_baseline")
         self.assertTrue(proposal["expected_result"])
         self.assertTrue(proposal["verification"])
-        self.assertIn("different approver", " ".join(proposal["prerequisites"]))
+        self.assertIn("approver role", " ".join(proposal["prerequisites"]))
         self.assertTrue(proposal["rollback"])
         approval_detail = self.operator.get("/api/v1/approvals?status=pending").json()["approvals"][0]
         self.assertEqual(approval_detail["expected_result"], proposal["expected_result"])

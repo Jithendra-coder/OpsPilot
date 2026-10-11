@@ -14,7 +14,7 @@ Incident descriptions, evidence, comments, session records, approval decisions, 
 | Investigation tools | Read-only, incident-scoped | Dependency-scope checks, bounded output, maximum seven-day query windows, typed errors; no arbitrary host or URL parameter. |
 | Prometheus adapter | Read-only source configured by the operator | HTTPS or loopback HTTP only; bearer token is environment-only; redirects disabled; five-second timeout; one-megabyte response cap; supported metric signal IDs only; query window limited to seven days. Returned label values are not stored. |
 | LLM provider | External service, disabled by default | Explicit consent switch, HTTPS-only URL, bounded evidence and response, heuristic secret redaction, no redirects; response can only rank existing candidates. |
-| Remediation request | State-changing and privileged | Typed catalog action, eligible simulator only, immutable hashed parameters, approval by a different approver, short expiry, idempotent operator execution, server-owned verification. |
+| Remediation request | State-changing and privileged | Typed catalog action, eligible simulator only, immutable hashed parameters, approval by the separate approver role, short expiry, operator-role execution, server-owned verification. |
 | MCP gateway | Local process user | stdio transport only and read tools only. Do not expose it through an unauthenticated network MCP endpoint. |
 
 ## Authentication and session notes

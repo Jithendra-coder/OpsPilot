@@ -1,10 +1,14 @@
 # OpsPilot
 
-OpsPilot is an incident investigation and controlled-remediation application for SRE and backend teams. It combines incident intake, scoped evidence review, deterministic root-cause analysis, a checkpointed investigation workflow, independent approval, and verified actions in an isolated simulator.
+OpsPilot is an incident investigation console for SRE and backend teams. It brings incident-scoped evidence into a checkpointed investigation, checks deterministic cause signatures, and lets an operator request a typed simulator action for review by the separate approver role.
 
-**Investigate with evidence. Keep remediation behind a human approval boundary.**
+**Investigate with evidence. Keep every action behind a role-gated approval and server verification.**
 
-Use it as a browser console, interactive terminal CLI, or API. Optional integrations are operator-configured: Prometheus metrics, alert and normalized-evidence intake, and a local read-only MCP server.
+Use the same application through its browser console, interactive CLI, or versioned API. The guided case uses bundled scenario evidence; configured alert, normalized-evidence, and Prometheus inputs are also supported, and read-only MCP tools are available. Actions change simulator state only.
+
+The website has one introduction page at `/`; **Get started** opens the console at `/console`. The console's six navigation items are views in that same application.
+
+**Start here:** [Quick start](#quick-start) · [Guided walkthrough](#guided-walkthrough) · [CLI-only package](#cli-only-package) · [Connect a service](#connect-an-existing-service) · [API and integrations](#api-and-integrations) · [Verification](#development-and-verification)
 
 ## Quick start
 
@@ -45,6 +49,17 @@ python3.11 -m venv .venv
 ```
 
 In a second terminal run `.venv/bin/python -m scripts.cli`. The API listens on loopback at `127.0.0.1:8765` by default.
+
+## Guided walkthrough
+
+1. Open `http://127.0.0.1:8765`, choose **Get started**, and sign in with the operator password printed by the server.
+2. Select **Run guided incident** for `SCN-001`, open the incident, and start its read-only investigation.
+3. Review the log, metric, trace, and change observations, then inspect the diagnosis and report.
+4. Request the eligible allowlisted action. This creates a proposal; it does not execute the action.
+5. Sign out, use the approver password to review the exact parameters, and approve the proposal.
+6. Sign out, return with the operator password, execute the approved action once, and inspect the simulator verification and report.
+
+OpsPilot enforces separate operator and approver roles. The credentials are shared locally, so the demo shows role separation; it does not prove that two distinct people participated.
 
 ### Repeatable local credentials
 
@@ -180,18 +195,18 @@ OpsPilot is a separate incident service, not an agent library that automatically
 
 Map your service into OpsPilot's service registry, use actual event timestamps, choose supported signal IDs, and validate source mappings against known events. Unknown signals remain evidence but cannot match a deterministic diagnosis. Observation text and provenance are caller-provided and not independently verified.
 
-## Incident workflow and demo path
+## Incident workflow
 
 1. Start a seeded replay, create a manual incident, or submit an authenticated alert.
 2. Review service scope, dependencies, evidence timestamps/provenance, and unavailable tools.
 3. Run the read-only investigation. It gathers bounded observations, checks deterministic signatures, and records findings, evidence, tool outcomes, and timeline. Insufficient or conflicting evidence stays inconclusive.
 4. Review the report and evidence before deciding what to do.
 5. For eligible seeded cases, an operator may request an allowlisted action. Proposal creation does not execute it.
-6. A separate approver reviews the exact parameters and approves or rejects with an audit note. The proposer cannot approve their own request.
-7. A different operator can execute an approved proposal once against the isolated simulator. Server-recorded verification controls resolution.
+6. The approver role reviews the exact parameters and approves or rejects with an audit note. An operator cannot approve a proposal.
+7. An operator can execute an approved proposal once against the isolated simulator. The approver role cannot execute an action it approved. Server-recorded verification controls resolution.
 8. Export the report, add audited notes, and back up incident/checkpoint data as needed.
 
-Both CLI roles can view overview, incidents, reports, and notes. Operators can start replays, create incidents, investigate, propose actions, execute approved actions, and run seeded evaluations. Approvers can review and decide pending requests. For a demo, use `db_pool`: investigate, show the evidence-linked report, propose, approve from the other role, execute, and show server verification.
+Both CLI roles can view overview, incidents, reports, and notes. Operators can start replays, create incidents, investigate, propose actions, execute approved actions, and run seeded evaluations. Approvers can review and decide pending requests. For the guided demonstration, use `SCN-001` and switch credentials between the operator and approver roles.
 
 ## API and integrations
 
@@ -325,7 +340,7 @@ Check recovered incidents and checkpoints before routing operators to the restor
 | Workflow | LangGraph with SQLite checkpoints by default; optional PostgreSQL checkpoint store. |
 | Diagnosis | Deterministic evidence-linked matching; optional model ranking only reorders supported candidates. |
 | Evidence tools | Ten bounded MCP tools, normalized observations, optional Prometheus metrics. |
-| Remediation | Typed allowlist, independent approver, different executor, idempotency, server-side simulator verification. |
+| Remediation | Typed allowlist, separate approver and operator roles, idempotent execution, server-side simulator verification. |
 | Observability | Prometheus-format request metrics and optional OpenTelemetry OTLP export. |
 
 The registry has eight services. The replay catalog has 36 deterministic cases: 28 supported labels and 8 expected-inconclusive cases. The separate 17-case evidence-composition set currently checks 13 supported decisions and 4 expected abstentions after signal mapping. These fixture results do not measure raw telemetry classification accuracy. Prometheus metrics and submitted observations can come from the operator-configured environment.

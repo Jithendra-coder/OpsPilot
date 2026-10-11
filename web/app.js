@@ -138,7 +138,7 @@ async function refresh() {
   document.getElementById("nav-approval-count").textContent = state.approvals.filter(function (item) { return item.approval_status === "pending"; }).length;
   document.getElementById("create-incident-top").hidden = state.role !== "operator";
   document.getElementById("profile-name").textContent = state.user;
-  document.getElementById("profile-role").textContent = state.role === "approver" ? "Independent approver" : "Operator";
+  document.getElementById("profile-role").textContent = state.role === "approver" ? "Approver" : "Operator";
   if (state.selectedId) {
     try { state.report = (await api("/api/v1/incidents/" + encodeURIComponent(state.selectedId) + "/report")).report; }
     catch (error) { state.report = null; state.selectedId = ""; }
@@ -215,16 +215,16 @@ function renderOverview() {
     stat("Open incidents", data.stats.open_incidents, '<span class="' + (data.stats.open_incidents ? "trend-up" : "trend-good") + '">' + (data.stats.open_incidents ? esc(data.stats.open_incidents + " require attention") : "No active incidents") + "</span>", data.stats.open_incidents ? "red" : "", "incidents"),
     stat("Critical · P1", high, high ? '<span class="trend-up">Immediate attention</span>' : "No critical incidents", high ? "red" : "", "activity"),
     stat("Healthy services", data.stats.healthy_services + "/" + data.stats.services, '<span class="trend-good">' + esc(data.stats.services - data.stats.healthy_services) + " degraded</span>", "blue", "server"),
-    stat("Pending approvals", pendingApprovals, pendingApprovals ? '<span class="trend-up">Independent review needed</span>' : "No actions awaiting review", pendingApprovals ? "amber" : "", "shield")
+    stat("Pending approvals", pendingApprovals, pendingApprovals ? '<span class="trend-up">Approver review needed</span>' : "No actions awaiting review", pendingApprovals ? "amber" : "", "shield")
   ].join("");
   const steps = [
     ["Signal", guidedScenario ? guidedScenario.description : "The guided scenario is unavailable in this workspace."],
     ["Investigate", "Read-only logs, metrics, and traces scoped to this incident."],
-    ["Approve", "A second role reviews the exact allowlisted action."],
-    ["Verify", "Server-side checks must pass before the incident resolves."]
+    ["Approve", "The approver role reviews the exact allowlisted action."],
+    ["Verify", "Simulator checks must pass before the incident resolves."]
   ].map(function (step, index) {
     return '<li class="command-step"><span class="command-step-number" aria-hidden="true">' + (index + 1) + '</span><div><strong>' + esc(step[0]) + '</strong><p>' + esc(step[1]) + "</p>" +
-      (index === 2 ? '<span class="approval-gate">' + icon("shield") + " Independent approval gate</span>" : "") + "</div></li>";
+      (index === 2 ? '<span class="approval-gate">' + icon("shield") + " Approver-role gate</span>" : "") + "</div></li>";
   }).join("");
   const disabled = state.busy || (!activeGuidedIncident && (state.role !== "operator" || !guidedScenario));
   const runLabel = state.busy ? '<span class="spinner"></span> ' + (activeGuidedIncident ? "Opening incident…" : "Starting incident…") : activeGuidedIncident ? "Continue guided incident" : state.role !== "operator" ? "Operator role required" : !guidedScenario ? "Scenario unavailable" : "Run guided incident";
@@ -232,13 +232,13 @@ function renderOverview() {
   const guidedIncidentId = activeGuidedIncident ? activeGuidedIncident.id : guidedScenario ? guidedScenario.id : "";
   const guidedActionLabel = activeGuidedIncident ? "Continue guided incident: " : "Run guided incident: ";
   const guidedStatus = activeGuidedIncident ? "Incident in progress" : !guidedScenario ? "Unavailable" : state.role !== "operator" ? "Operator role required" : "Ready to launch";
-  return heading("Incident command", "Investigate with evidence. Require independent approval before remediation.",
+  return heading("Incident command", "Investigate with evidence. Require approver-role sign-off before remediation.",
     '<span class="command-environment"><span class="status-dot"></span> GUIDED CASE</span>', "command-heading") +
-    '<section class="command-workspace" aria-label="Guided incident workspace"><div class="command-journey card"><div class="command-panel-heading"><p class="eyebrow">THE RESPONSE PATH</p><h2>From signal to verified recovery</h2><p>Every stage is visible. Remediation stays behind an independent approval.</p></div><ol class="command-steps">' + steps +
+    '<section class="command-workspace" aria-label="Guided incident workspace"><div class="command-journey card"><div class="command-panel-heading"><p class="eyebrow">THE RESPONSE PATH</p><h2>From signal to verified outcome</h2><p>Every stage is visible. Remediation stays behind the approver role.</p></div><ol class="command-steps">' + steps +
     '</ol></div><div class="command-launch"><div class="command-launch-top"><span class="scenario-label">GUIDED SCENARIO · ' + esc(guidedScenario ? guidedScenario.id : "SCN-001") + '</span><span class="ready-label"><span class="status-dot"></span>' + esc(guidedStatus) + '</span></div>' +
-    '<p class="eyebrow">' + esc(guidedScenario ? serviceName(guidedScenario.service_id) : "EXAMPLE CASE") + '</p><h2>' + esc(guidedScenario ? guidedScenario.title : "Guided scenario unavailable") + '</h2><p class="command-description">Follow the incident from its first signal through correlated evidence, a supported diagnosis, a human-reviewed fix, and server-verified recovery.</p>' +
+    '<p class="eyebrow">' + esc(guidedScenario ? serviceName(guidedScenario.service_id) : "EXAMPLE CASE") + '</p><h2>' + esc(guidedScenario ? guidedScenario.title : "Guided scenario unavailable") + '</h2><p class="command-description">Follow the incident from its first signal through correlated evidence, a supported diagnosis, a role-reviewed simulator action, and server-verified checks.</p>' +
     '<div class="command-actions"><button class="button button-primary command-run" data-action="' + guidedAction + '" data-id="' + esc(guidedIncidentId) + '" aria-label="' + esc(guidedActionLabel + (guidedScenario ? guidedScenario.title : "scenario unavailable")) + '" ' + (disabled ? "disabled" : "") + '>' + runLabel + ' ' + (state.busy ? "" : icon("arrow")) + '</button><button class="button command-secondary" data-nav="lab">Explore all scenarios ' + icon("arrow") + '</button></div>' +
-    '<p class="command-safety">' + icon("shield") + '<span>Investigation is read-only. Any replay action needs separate approval.</span></p></div></section>' +
+    '<p class="command-safety">' + icon("shield") + '<span>Investigation is read-only. Any replay action needs approver-role sign-off.</span></p></div></section>' +
     '<section class="stats-grid command-stats" aria-label="Current workspace status">' + metrics + '</section>' +
     '<div class="overview-grid command-support"><section class="card panel"><div class="section-head panel-head"><div><h2>Recent activity</h2><p>Incident decisions and outcomes recorded in this workspace</p></div><button class="text-link" data-nav="incidents">Incident history ' + icon("arrow") + "</button></div>" + activityList(data.activity) +
     '</section><section class="card panel"><div class="section-head panel-head"><div><h2>Service baseline</h2><p>' + esc(data.stats.healthy_services) + " of " + esc(data.stats.services) + ' services healthy</p></div><button class="text-link" data-nav="services">Service map ' + icon("arrow") + "</button></div>" +
@@ -370,11 +370,11 @@ function renderInvestigation() {
     let actionState = '<p class="muted">This finding is informational because evidence is incomplete or the incident is not an eligible replay.</p>';
     if (latestAction) {
       const label = latestAction.execution_status === "completed" ? (latestAction.verification_passed ? "Verified · resolved" : "Executed · verification failed") :
-        latestAction.approval_status === "pending" ? "Waiting for independent approval" : latestAction.approval_status === "approved" ? "Approved · ready to execute" :
+        latestAction.approval_status === "pending" ? "Waiting for approver review" : latestAction.approval_status === "approved" ? "Approved · ready to execute" :
           latestAction.approval_status === "rejected" ? "Rejected · investigate again before proposing" : latestAction.approval_status;
       actionState = '<div class="approval-state"><strong>' + esc(label) + '</strong><span>Proposal ' + esc(latestAction.id) + " · approval expires " + esc(dateLabel(latestAction.expires_at)) + '</span><button class="text-link" data-nav="approvals">Open approval center ' + icon("arrow") + "</button></div>";
     } else if (action && state.role === "operator" && incident.source === "simulation" && incident.status === "INVESTIGATING") {
-      actionState = '<p class="muted">Exact action: <code>' + esc(action.type) + '</code> on <code>' + esc(action.service_id) + '</code>. An independent approver must approve its immutable parameters before it can run.</p><button class="button button-primary button-compact" data-action="propose-remediation">Request approval</button>';
+      actionState = '<p class="muted">Exact action: <code>' + esc(action.type) + '</code> on <code>' + esc(action.service_id) + '</code>. The approver role must approve its immutable parameters before it can run.</p><button class="button button-primary button-compact" data-action="propose-remediation">Request approval</button>';
     }
     recommendation = '<section class="recommendation-card"><div class="recommendation-title">' + icon("spark") + " Recommended next step</div><p>" +
       esc(result.recommendation.summary) + "</p>" + actionState + '<div class="safe-boundary">' + icon("shield") +
@@ -418,7 +418,7 @@ function renderInvestigation() {
     '</strong></div><div class="side-kv-row"><span>Scenario</span><strong>' + (incident.scenario_id ? "Replay lab" : "Manual intake") + "</strong></div></div></section>" +
     '<section class="card side-panel"><div class="section-head"><h2>Timeline</h2><button class="text-link" data-action="export-report">' + icon("download") + "</button></div>" + timeline +
     '</section><section class="card side-panel"><div class="section-head"><h2>Action controls</h2></div><div class="safe-boundary">' + icon("shield") +
-    "<span>Changes use allowlisted actions, require independent approval, and need server-side verification.</span></div></section></aside></div>";
+    "<span>Changes use allowlisted actions, require approver-role sign-off, and need server-side verification.</span></div></section></aside></div>";
 }
 
 function renderApprovals() {
@@ -440,7 +440,7 @@ function renderApprovals() {
       controls = '<span class="run-status ' + (item.verification_passed ? "" : "inconclusive") + '"><span class="status-dot"></span>' +
         (item.verification_passed ? "Verified · incident resolved" : "Verification failed · incident remains open") + "</span>";
     } else if (item.approval_status === "pending" && state.role !== "approver") {
-      controls = '<span class="form-hint">Independent approver sign-in required.</span>';
+      controls = '<span class="form-hint">Approver-role sign-in required.</span>';
     } else if (item.approval_status === "approved" && state.role === "approver") {
       controls = '<span class="form-hint">Approved by ' + esc(item.approved_by || "approver") + ' · operator execution pending.</span>';
     }
@@ -450,7 +450,7 @@ function renderApprovals() {
       '</strong></span><span>Expires <strong>' + esc(dateLabel(item.expires_at)) + '</strong></span></div><div class="approval-footer">' + controls +
       '<button class="text-link" data-action="open-incident" data-id="' + esc(item.incident_id) + '">View incident ' + icon("arrow") + "</button></div></article>";
   }).join("");
-  return heading("Approval center", pending + " pending · approvals are tied to exact action parameters.", state.role === "approver" ? '<span class="small-meta">SIGNED IN AS INDEPENDENT APPROVER</span>' : '<span class="small-meta">OPERATOR · READ AND EXECUTE APPROVED ACTIONS</span>') +
+  return heading("Approval center", pending + " pending · approvals are tied to exact action parameters.", state.role === "approver" ? '<span class="small-meta">SIGNED IN AS APPROVER</span>' : '<span class="small-meta">OPERATOR · READ AND EXECUTE APPROVED ACTIONS</span>') +
     (cards || '<section class="card panel"><div class="empty-state"><strong>No remediation proposals</strong>Evidence-backed proposals will appear here after an investigation.</div></section>');
 }
 
@@ -475,7 +475,7 @@ function renderLab() {
     '<div class="lab-grid"><section class="card panel"><div class="section-head panel-head"><div><h2>Scenario library</h2><p>Includes incomplete, conflicting, and untrusted evidence cases</p></div><span class="small-meta">READY TO REPLAY</span></div><div class="scenario-grid">' + cards +
     '</div></section><div><section class="card evaluation-card"><p class="eyebrow">REPRODUCIBLE RULE CHECK</p><h2>Check the signature rules.</h2><p>Run the catalog cases through the deterministic engine and inspect matches and inconclusive outcomes.</p><p class="small-meta">Cases reuse internal rule IDs, so this is a consistency check, not an accuracy test.</p>' +
     '<button class="button" data-action="evaluate" ' + (state.busy || state.role !== "operator" ? "disabled" : "") + '>' + (state.busy ? '<span class="spinner"></span> Evaluating…' : icon("activity") + " Run full evaluation (" + state.scenarios.length + ")") + "</button>" + evaluation +
-    '</section><div class="method-note">' + icon("shield") + '<span><strong>Safe by design.</strong> Investigation is read-only. Actions require a supported finding, independent approval, idempotent execution, and server-side recovery checks.</span></div></div></div>';
+    '</section><div class="method-note">' + icon("shield") + '<span><strong>Safe by design.</strong> Investigation is read-only. Actions require a supported finding, approver-role sign-off, idempotent execution, and server-side recovery checks.</span></div></div></div>';
 }
 
 function modal(content) {
@@ -511,7 +511,7 @@ function executionModal(proposalId) {
   const item = state.approvals.find(function (approval) { return approval.proposal_id === proposalId; });
   if (!item) return;
   modal('<div class="modal-head"><div><h2>Execute approved action</h2><p>This applies the approved change to the incident replay state.</p></div><button class="icon-button modal-close" data-action="close-modal" aria-label="Close">' + icon("close") + "</button></div>" +
-    '<div class="approval-action"><span class="fact-label">APPROVED ACTION</span><strong>' + esc(item.action_type) + " · " + esc(item.service_id) + '</strong><pre>' + esc(JSON.stringify(item.parameters, null, 2)) + '</pre><small>Approved by ' + esc(item.approved_by || "independent reviewer") + '</small></div>' +
+    '<div class="approval-action"><span class="fact-label">APPROVED ACTION</span><strong>' + esc(item.action_type) + " · " + esc(item.service_id) + '</strong><pre>' + esc(JSON.stringify(item.parameters, null, 2)) + '</pre><small>Approved by ' + esc(item.approved_by || "approver") + '</small></div>' +
     '<form class="modal-form" id="action-execute-form" data-id="' + esc(proposalId) + '"><label class="check-row"><input type="checkbox" required><span>Apply the change to this incident’s replay state and verify it.</span></label><div class="modal-actions"><button class="button" type="button" data-action="close-modal">Cancel</button><button class="button button-primary" type="submit">Execute and verify</button></div></form>');
 }
 
@@ -590,7 +590,7 @@ async function proposeRemediation() {
   try {
     await api("/api/v1/incidents/" + encodeURIComponent(state.selectedId) + "/remediation/propose", { method: "POST", body: "{}" });
     await refresh();
-    toast("Proposal submitted for independent approval.");
+    toast("Proposal sent to the approver role.");
   } catch (error) { toast(error.message, true); }
   finally { state.busy = false; render(); }
 }

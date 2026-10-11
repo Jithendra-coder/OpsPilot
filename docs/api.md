@@ -33,11 +33,11 @@ Except health and the monitoring webhook, routes require a session cookie from P
 | GET /investigations/{id}/events | Session | Tool and graph stage outcomes. |
 | GET /investigations/{id}/evidence | Session | Evidence for a specific run. |
 | GET /investigations/{id}/hypotheses | Session | Hypotheses for a specific run. |
-| POST /incidents/{id}/remediation/propose | Operator + CSRF | Create or reuse an eligible typed simulator proposal and independent approval request. |
+| POST /incidents/{id}/remediation/propose | Operator + CSRF | Create or reuse an eligible typed simulator proposal for approver-role review. |
 | GET /approvals | Session | Approval history. Query status: pending, approved, rejected, expired, all. |
 | POST /approvals/{id}/approve | Approver + CSRF | Body: decision note. Cannot approve own proposal. |
 | POST /approvals/{id}/reject | Approver + CSRF | Body: decision note; rejected proposal returns incident to investigation. |
-| POST /actions/{proposal_id}/execute | Different operator + CSRF | Body: idempotency_key. Executes the approved, unexpired catalog action only once in the isolated simulator. |
+| POST /actions/{proposal_id}/execute | Operator role + CSRF | Body: idempotency_key. Executes the approved, unexpired catalog action only once in the isolated simulator; the approver role that approved it cannot execute it. |
 | GET /actions/{proposal_id-or-execution_id}/verification | Session | Server-recorded checks for the action. |
 | POST /simulations/start | Operator + CSRF | Body: scenario_id and optional owner. Inject a seeded local fault. |
 | POST /simulations/{incident_id}/reset | Operator + CSRF | Reset only before investigation or action history exists. |

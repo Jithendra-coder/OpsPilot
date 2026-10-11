@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f6f8f6">
-  <meta name="description" content="OpsPilot investigates incidents with scoped operational evidence and keeps every remediation behind independent human approval and server verification.">
-  <title>OpsPilot — Find the cause. Keep control.</title>
+  <meta name="description" content="OpsPilot investigates incidents with scoped evidence and gates eligible simulator actions behind an approver role and server verification.">
+  <title>OpsPilot — Find the cause. Control the fix.</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/intro.css">
 </head>
@@ -27,12 +27,12 @@
   <main id="main">
     <section class="hero wrap" aria-labelledby="hero-title">
       <div class="hero-copy">
-        <p class="eyebrow"><span class="eyebrow-mark" aria-hidden="true"></span> INCIDENT INTELLIGENCE, UNDER CONTROL</p>
-        <h1 id="hero-title">Find the cause.<br><span>Keep control.</span></h1>
-        <p class="hero-lede">OpsPilot turns scattered incident signals into an evidence-backed investigation—and keeps every operational change behind a second human and a verified result.</p>
+        <p class="eyebrow"><span class="eyebrow-mark" aria-hidden="true"></span> INCIDENT RESPONSE, WITH EVIDENCE AND CONTROL</p>
+        <h1 id="hero-title">Find the cause.<br><span>Control the fix.</span></h1>
+        <p class="hero-lede">OpsPilot brings scoped incident evidence into one investigation, tests supported causes, and gates eligible simulator actions behind the approver role and server verification.</p>
         <div class="hero-actions">
           <a class="button" href="/console">Get started <span aria-hidden="true">↗</span></a>
-          <a class="button-quiet" href="#workflow">See how it works <span aria-hidden="true">↓</span></a>
+          <a class="button-quiet" href="#demo">Watch the walkthrough <span aria-hidden="true">↓</span></a>
         </div>
       </div>
 
@@ -40,7 +40,7 @@
         <div class="preview-chrome">
           <span class="preview-lights" aria-hidden="true"><i></i><i></i><i></i></span>
           <span class="preview-route">opspilot <b>/</b> investigation</span>
-          <span class="preview-mode"><i aria-hidden="true"></i> EXAMPLE CASE</span>
+          <span class="preview-mode"><i aria-hidden="true"></i> GUIDED SCENARIO</span>
         </div>
         <div class="preview-body">
           <div class="preview-kicker"><span>SCN-001</span><span>EXAMPLE INCIDENT</span></div>
@@ -67,8 +67,8 @@
 
           <div class="evidence-row">
             <span class="evidence-icon" aria-hidden="true">↳</span>
-            <span><strong>Checkout → database</strong><small>Metric + trace correlation</small></span>
-            <span class="evidence-count">3 sources</span>
+            <span><strong>Checkout → database</strong><small>Log · metric · trace evidence</small></span>
+            <span class="evidence-count">3 cause signals</span>
           </div>
           <div class="cause-row">
             <span class="cause-check" aria-hidden="true">✓</span>
@@ -77,8 +77,8 @@
           </div>
           <div class="approval-row">
             <span class="approval-lock" aria-hidden="true">⌑</span>
-            <span><small>THEN, AND ONLY THEN</small><strong>Independent approval → verified recovery</strong></span>
-            <span class="approval-state">HUMAN GATE</span>
+            <span><small>THEN, AND ONLY THEN</small><strong>Approver role → verified simulator result</strong></span>
+            <span class="approval-state">ROLE GATE</span>
           </div>
         </div>
       </aside>
@@ -88,15 +88,15 @@
       <div class="wrap trust-items">
         <span><b aria-hidden="true">01</b> Read-only investigation</span>
         <span><b aria-hidden="true">02</b> Evidence-linked diagnosis</span>
-        <span><b aria-hidden="true">03</b> Independent approval</span>
-        <span><b aria-hidden="true">04</b> Server-verified recovery</span>
+        <span><b aria-hidden="true">03</b> Approver-role sign-off</span>
+        <span><b aria-hidden="true">04</b> Simulator-verified result</span>
       </div>
     </section>
 
     <section class="workflow-section wrap" id="workflow" aria-labelledby="workflow-title">
       <div class="section-intro">
         <p class="eyebrow">A BETTER WAY THROUGH AN INCIDENT</p>
-        <h2 id="workflow-title">From first signal<br>to verified recovery.</h2>
+        <h2 id="workflow-title">From first signal<br>to verified outcome.</h2>
         <p>Each step leaves a record. The investigator gathers evidence and explains its reasoning; people retain authority over change.</p>
       </div>
       <div class="workflow-list">
@@ -107,7 +107,7 @@
           <span class="step-index">02</span><div><h3>Test the possible causes</h3><p>Compare competing explanations against observed evidence. See what supports a cause—and what remains uncertain.</p></div><span class="step-symbol" aria-hidden="true">⌕</span>
         </article>
         <article class="workflow-step workflow-gated">
-          <span class="step-index">03</span><div><h3>Put a human at the action boundary</h3><p>Recommendations use typed, allowlisted actions. A different approver reviews the exact proposal before an operator can run it.</p></div><span class="step-symbol" aria-hidden="true">⌑</span>
+          <span class="step-index">03</span><div><h3>Keep approval separate from execution</h3><p>Eligible actions are typed and allowlisted. The approver role reviews the exact proposal before an operator can run it.</p></div><span class="step-symbol" aria-hidden="true">⌑</span>
         </article>
         <article class="workflow-step">
           <span class="step-index">04</span><div><h3>Verify, then close the loop</h3><p>Server-owned checks decide whether symptoms cleared. Preserve the approval, execution and result in the incident record.</p></div><span class="step-symbol" aria-hidden="true">✓</span>
@@ -118,13 +118,13 @@
     <section class="safety-band" id="safety" aria-labelledby="safety-title">
       <div class="wrap safety-content">
         <div class="safety-mark" aria-hidden="true"><span></span><span></span></div>
-        <div><p class="eyebrow">BUILT AROUND A CLEAR BOUNDARY</p><h2 id="safety-title">An AI recommendation<br>is never permission.</h2><p>Investigation is read-only. Every proposed change is typed, independently approved and checked before the incident can close.</p></div>
-        <div class="safety-stamp"><span>CHANGE PROCESS</span><strong>HUMAN-GATED</strong><small>Checked before closure</small></div>
+        <div><p class="eyebrow">BUILT AROUND A CLEAR BOUNDARY</p><h2 id="safety-title">A recommendation<br>is never permission.</h2><p>Investigation is read-only. Eligible simulator actions are typed, reviewed by the approver role, and checked by the server before the incident can close.</p></div>
+        <div class="safety-stamp"><span>CHANGE PROCESS</span><strong>ROLE-GATED</strong><small>Simulator checks before closure</small></div>
       </div>
     </section>
 
     <section class="demo-section wrap" id="demo" aria-labelledby="demo-title">
-      <div class="demo-heading"><div><p class="eyebrow">SEE THE WORKFLOW</p><h2 id="demo-title">A signal. A supported cause.<br>A person in control.</h2></div><p>A concise walkthrough of the Checkout API incident, from supporting evidence through independent approval and recovery.</p></div>
+      <div class="demo-heading"><div><p class="eyebrow">SEE THE WORKFLOW</p><h2 id="demo-title">Evidence in view.<br>Every action accounted for.</h2></div><p>Follow guided scenario SCN-001 from evidence review through approver-role review and simulator verification.</p></div>
       <div class="video-frame">
         <video controls preload="metadata" poster="/demo-poster.svg" aria-label="OpsPilot product walkthrough with captions">
           <source src="/demo.webm" type="video/webm">
@@ -133,12 +133,12 @@
         </video>
         <div class="video-caption"><span><i aria-hidden="true"></i> PRODUCT WALKTHROUGH</span><span>SCN-001 · Checkout API</span><span>~85 seconds</span></div>
       </div>
-      <div class="demo-note"><span aria-hidden="true">ⓘ</span> Follow one incident from its first signal to an independently approved and verified action.</div>
+      <div class="demo-note"><span aria-hidden="true">ⓘ</span> The walkthrough uses the bundled guided scenario; configured evidence integrations are available in the console.</div>
     </section>
 
     <section class="closing wrap" aria-labelledby="closing-title">
       <p class="eyebrow">EVIDENCE FIRST. ACTION UNDER HUMAN CONTROL.</p>
-      <h2 id="closing-title">See how OpsPilot handles<br>an incident from end to end.</h2>
+      <h2 id="closing-title">See the investigation<br>and open the console.</h2>
       <a class="button" href="/console">Get started <span aria-hidden="true">↗</span></a>
     </section>
   </main>

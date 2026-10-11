@@ -189,14 +189,14 @@
   <text x="118" y="1690" class="body">409 · no proposal/state change</text>
 
   <rect x="730" y="1440" width="350" height="145" rx="17" class="card"/>
-  <text x="758" y="1478" class="eyebrow">INDEPENDENT APPROVAL</text>
+  <text x="758" y="1478" class="eyebrow">APPROVER-ROLE REVIEW</text>
   <text x="758" y="1517" class="cardtitle">Exact parameter hash</text>
-  <text x="758" y="1550" class="small">Different approver · 30-minute expiry</text>
+  <text x="758" y="1550" class="small">Approver role · 30-minute expiry</text>
   <path d="M1080 1512 H1113" class="line"/>
 
   <rect x="1120" y="1440" width="350" height="145" rx="17" class="softblue"/>
   <text x="1148" y="1478" class="eyebrow">EXECUTION API</text>
-  <text x="1148" y="1517" class="cardtitle">Different operator</text>
+  <text x="1148" y="1517" class="cardtitle">Operator role</text>
   <text x="1148" y="1550" class="small">Executes once against simulator</text>
   <path d="M1470 1512 H1503" class="line"/>
 

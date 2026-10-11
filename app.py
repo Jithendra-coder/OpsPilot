@@ -508,7 +508,7 @@ def diagnose(evidence,errors):
         "rationale":hypotheses[0]["rationale"]+" No competing signature has the same cross-source support.",
         "hypotheses":hypotheses,"recommendation":{"action_type":action[0] if action else "operator_review","summary":cause[5],"reason":cause[1],
             "supporting_evidence_ids":hypotheses[0]["evidence_ids"],"risk":"moderate" if action else "none","approval_required":True,
-            "prerequisites":["The finding must match the active seeded fault.","A different approver must approve the exact parameters."] if action else [],
+            "prerequisites":["The finding must match the active seeded fault.","The approver role must approve the exact parameters."] if action else [],
             "expected_result":"The simulated symptom clears and the affected service health check passes." if action else "No automated change is available.",
             "execution_enabled":bool(action),"verification":"Confirm the simulator reports the service healthy and the original symptom cleared." if action else cause[4],
             "rollback":"No inverse action is exposed. If verification fails, keep the incident open and escalate it." if action else "No changes were made.",
@@ -975,7 +975,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200,{"approvals":values,"role_required":"approver"})
     def decide_approval(self,approval_id,decision):
         session=self.session()
-        if session["role"]!="approver": raise ApiError(403,"approver_role_required","Sign in with the independent approver credential to review actions.")
+        if session["role"]!="approver": raise ApiError(403,"approver_role_required","Sign in with the approver-role credential to review actions.")
         payload=self.body(); require_fields(payload,{"note"},{"note"})
         note=text_field(payload["note"],"note",6,500)
         with db() as con:

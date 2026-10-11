@@ -21,7 +21,7 @@ The deterministic signature engine is authoritative. It abstains when evidence s
 
 Operational records (incidents, submitted observations, investigation evidence, events, approvals, actions, verification, evaluations, and audit records) live in `data/opspilot.db`. A versioned migration preserves old evidence while allowing multiple records of one kind per run. LangGraph checkpoints use `data/workflow-checkpoints.sqlite` by default; `OPSPILOT_CHECKPOINT_DATABASE_URL` switches only the checkpoint store to PostgreSQL. The incident store remains SQLite.
 
-Remediation is a separate operator-requested API call. A proposal requires a supported diagnosis matching an active seeded replay and an allowlisted action. The exact typed parameters are hashed and immutable; a different approver must approve them within 30 minutes. A different operator executes the action once against simulator state. Server-owned health, symptom, and action-scope checks control resolution.
+Remediation is a separate operator-requested API call. A proposal requires a supported diagnosis matching an active seeded replay and an allowlisted action. The exact typed parameters are hashed and immutable; the approver role must approve them within 30 minutes. An operator executes the action once against simulator state, while the approver role that approved it is blocked from execution. Server-owned health, symptom, and action-scope checks control resolution.
 
 ### Communication and engineering choices
 
@@ -59,13 +59,13 @@ The graph reads bounded evidence in order, deduplicates observations, retains to
 
 The final diagnosis, evidence, tool outcomes, timeline events, and audit entries are committed before the API returns JSON to the console. Optional model review runs only after deterministic candidates exist. A timeout or invalid model response does not block the request or change the deterministic cause.
 
-After a supported result, the operator must explicitly request a proposal. The server checks the active scenario and cause match, then creates a typed, hashed, expiring approval request. Rejection returns the incident to investigation. Expiry blocks execution and requires a fresh investigation and proposal. Once approved, a different operator executes once. The server records health, original-symptom, and scope checks; only a passing result marks the incident resolved.
+After a supported result, the operator must explicitly request a proposal. The server checks the active scenario and cause match, then creates a typed, hashed, expiring approval request. Rejection returns the incident to investigation. Expiry blocks execution and requires a fresh investigation and proposal. Once approved, an operator executes once; the approver role cannot execute an action it approved. The server records health, original-symptom, and scope checks; only a passing result marks the incident resolved.
 
 ## Interview walkthrough
 
 ### 30 seconds
 
-“OpsPilot is a controlled incident-investigation workspace. An operator starts an investigation, and a checkpointed LangGraph workflow reads incident-scoped evidence through bounded, read-only tools. Deterministic signatures select a cause only when enough independent evidence agrees; an optional consent-gated model can rank those fixed candidates. Any remediation is a separate typed proposal, approved by a second role, executed once by another operator, and resolved only after server-side simulator checks pass.”
+"OpsPilot is a controlled incident-investigation workspace. An operator starts an investigation, and a checkpointed LangGraph workflow reads incident-scoped evidence through bounded, read-only tools. Deterministic signatures select a cause only when enough independent evidence agrees; an optional consent-gated model can rank those fixed candidates. Any remediation is a separate typed proposal, approved by the approver role and executed once by the operator role; server-side simulator checks control resolution."
 
 ### 2 minutes
 
@@ -75,14 +75,14 @@ For investigation, the operator supplies an idempotency key. OpsPilot persists a
 
 The deterministic diagnosis engine requires cross-source support and abstains on source errors or close competing signatures. If explicit consent and HTTPS provider settings are present, the optional model sees bounded, heuristically redacted observations and a fixed candidate list. It may reorder candidates but cannot invent the cause or authorize action.
 
-Completed evidence, tool outcomes, result, and audit trail are persisted before returning to the console. A supported result still does not execute anything: an operator must request an allowlisted proposal, another person must approve the exact hashed parameters before expiry, and a different operator must execute it. The executor changes only simulator state and the server records the verification checks. Only passing checks resolve the incident.”
+Completed evidence, tool outcomes, result, and audit trail are persisted before returning to the console. A supported result still does not execute anything: an operator must request an allowlisted proposal, the approver role must approve the exact hashed parameters before expiry, and an operator must execute it. The executor changes only simulator state and the server records the verification checks. Only passing checks resolve the incident. Shared local role credentials enforce role separation but do not establish distinct human identities.”
 
 ### Interview questions
 
 1. **Why does the graph call Python tools directly instead of going through MCP?** The workflow imports the shared `investigation_tools` module directly. MCP is a separate stdio adapter for external local clients; it is not an internal transport dependency.
 2. **What makes a diagnosis supported?** At least two distinct evidence kinds must match a deterministic signature, there must be no tool errors, and the top signature must lead a competing signature by at least two evidence kinds. Otherwise the engine abstains.
 3. **What authority does the LLM have?** None over cause selection or actions. With explicit consent and valid HTTPS configuration it can reorder up to four deterministic candidates and annotate missing evidence. Invalid or unavailable output falls back.
-4. **How do you prevent unsafe or duplicate remediation?** The server requires an active matching simulator case and a catalog action, hashes immutable parameters, requires a distinct unexpired approver, requires a different operator to execute, and allows one execution per proposal.
+4. **How do you prevent unsafe or duplicate remediation?** The server requires an active matching simulator case and a catalog action, hashes immutable parameters, requires approval from the unexpired approver role, blocks that role from executing its approved action, and allows one execution per proposal.
 5. **What would need to change before hosted production use?** Add managed per-user identity and tenant isolation, coordinated operational storage and migrations, shared throttling, external observability adapters, a tested recovery and scale plan, and deployment-level authorization. Keep remediation bound to its simulator until a separately designed production control plane is reviewed.
 
 ## Validation summary

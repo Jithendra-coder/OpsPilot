@@ -113,11 +113,11 @@
   <rect x="95" y="990" width="1440" height="300" rx="20" fill="#FFFFFF" stroke="#AFC2EE" stroke-width="2.5"/>
   <rect x="95" y="990" width="12" height="300" rx="5" fill="#4263EB"/>
   <text x="132" y="1038" class="eyebrow">SEPARATE CONTROLLED ACTION PATH</text>
-  <text x="132" y="1077" class="cardtitle">Typed proposal → independent approval → one simulator execution</text>
+  <text x="132" y="1077" class="cardtitle">Typed proposal → approver-role review → one simulator execution</text>
   <line x1="132" y1="1097" x2="1497" y2="1097" class="separator"/>
   <text x="132" y="1135" class="body">Supported finding + active matching replay + allowlisted action</text>
-  <text x="132" y="1170" class="body">Immutable parameters/hash · different approver · 30-minute expiry</text>
-  <text x="132" y="1205" class="body">Different operator executes once · server checks health, symptom, and scope</text>
+  <text x="132" y="1170" class="body">Immutable parameters/hash · approver role · 30-minute expiry</text>
+  <text x="132" y="1205" class="body">Operator role executes once · server checks health, symptom, and scope</text>
   <rect x="132" y="1231" width="653" height="39" rx="19" fill="#EAF7F4"/>
   <text x="458" y="1257" text-anchor="middle" class="chip" fill="#0C6B68">PASS → RESOLVED</text>
   <rect x="805" y="1231" width="692" height="39" rx="19" fill="#FFF4E8"/>

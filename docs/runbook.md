@@ -39,7 +39,7 @@ The reader sends incident-window range queries with redirects disabled, a five-s
 - A missing or unavailable source should lower confidence and keep the result inconclusive. Inspect tool errors and provenance before acting.
 - Only supported findings on eligible seeded simulations can propose an action. Manual incidents and unknown scenarios cannot execute remediation.
 - The proposal expires after 30 minutes. A fresh investigation and proposal are required after expiry or if the simulator state changes.
-- The approver and executor must be different actors. Replaying the exact idempotency key returns the saved result. A different key cannot re-run that proposal.
+- The approver-role account cannot execute the proposal it approved. An operator-role account may execute it once. Replaying the exact idempotency key returns the saved result; a different key cannot re-run that proposal.
 - A failed post-action check leaves the incident unresolved. Escalate it and preserve the report; never edit the database to force resolution.
 
 ## Back up SQLite data
