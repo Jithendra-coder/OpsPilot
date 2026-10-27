@@ -1,5 +1,7 @@
 # OpsPilot
 
+[![CI](https://github.com/Jithendra-coder/OpsPilot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Jithendra-coder/OpsPilot/actions/workflows/ci.yml)
+
 OpsPilot is an incident investigation console for SRE and backend teams. It brings incident-scoped evidence into a checkpointed investigation, checks deterministic cause signatures, and lets an operator request a typed simulator action for review by the separate approver role.
 
 **Investigate with evidence. Keep every action behind a role-gated approval and server verification.**
