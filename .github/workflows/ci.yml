@@ -92,7 +92,7 @@ jobs:
       - if: failure()
         run: |
           docker compose -f demo/compose.yaml --env-file .local-demo/demo.env ps -a
-          docker compose -f demo/compose.yaml --env-file .local-demo/demo.env logs --no-color --tail=100 opspilot caddy postgres opspilot-bootstrap
+          docker compose -f demo/compose.yaml --env-file .local-demo/demo.env logs --no-color --tail=100 opspilot caddy postgres opspilot-bootstrap checkout-demo prometheus alertmanager loki tempo otel-collector
       - if: always()
         run: python -m scripts.demo down
 
