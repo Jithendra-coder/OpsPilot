@@ -166,12 +166,14 @@ services:
     depends_on: [opspilot]
     ports:
       - "127.0.0.1:8765:443"
-    networks: [lab]
+    networks: [lab, edge]
     restart: unless-stopped
 
 networks:
   lab:
     internal: true
+  edge:
+    driver: bridge
 
 volumes:
   postgres_data:
