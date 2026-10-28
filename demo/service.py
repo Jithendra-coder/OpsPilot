@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -29,11 +30,12 @@ logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger("checkout")
 
 registry = CollectorRegistry()
-pool_utilization = Gauge("checkout_db_pool_utilization", "Share of checkout database connections currently in use", ("service_id",), registry=registry)
+pool_utilization = Gauge("checkout_db_pool_utilization", "Share of checkout database connections currently in use", ("service_id", "demo_run_id"), registry=registry)
 requests_total = Counter("checkout_requests_total", "Checkout requests by outcome", ("status",), registry=registry)
 fault_active = False
+fault_run_id = "baseline"
 fault_lock = threading.Lock()
-pool_utilization.labels("checkout").set(0.25)
+pool_utilization.labels("checkout", fault_run_id).set(0.25)
 
 
 def checkout():
@@ -95,12 +97,14 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json(404, {"error": "not_found", "fault_active": state})
 
     def do_POST(self):
-        global fault_active
+        global fault_active, fault_run_id
         if self.path != "/admin/failure/on" and self.path != "/admin/failure/off":
             return self.send_json(404, {"error": "not_found"})
         with fault_lock:
             fault_active = self.path.endswith("/on")
-            pool_utilization.labels("checkout").set(0.98 if fault_active else 0.25)
+            fault_run_id = secrets.token_hex(8) if fault_active else "baseline"
+            pool_utilization.clear()
+            pool_utilization.labels("checkout", fault_run_id).set(0.98 if fault_active else 0.25)
         logger.warning("Controlled local demo fault %s", "enabled" if fault_active else "cleared")
         if fault_active:
             status, result = checkout()

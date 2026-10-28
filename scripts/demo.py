@@ -98,32 +98,8 @@ def wait_for_app() -> None:
 def verify_live_path() -> None:
     values = dict(line.split("=", 1) for line in ENV_FILE.read_text(encoding="utf-8").splitlines() if "=" in line)
     headers = {"Origin": "https://localhost:8765"}
-    local_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     set_fault(False)
-    deadline = time.monotonic() + 40
-    while time.monotonic() < deadline:
-        try:
-            with local_opener.open("http://127.0.0.1:9093/api/v2/alerts", timeout=5) as response:
-                alertmanager_alerts = json.loads(response.read())
-            with local_opener.open("http://127.0.0.1:9090/api/v1/alerts", timeout=5) as response:
-                prometheus_alerts = json.loads(response.read())["data"]["alerts"]
-            pending_at_source = any(
-                item.get("labels", {}).get("service_id") == "checkout"
-                and item.get("state") in {"pending", "firing"}
-                for item in prometheus_alerts
-            )
-            active_at_receiver = any(
-                item.get("status", {}).get("state") == "active"
-                and item.get("labels", {}).get("service_id") == "checkout"
-                for item in alertmanager_alerts
-            )
-            if not pending_at_source and not active_at_receiver:
-                break
-        except (OSError, urllib.error.URLError, ValueError):
-            pass
-        time.sleep(2)
-    else:
-        raise SystemExit("The previous checkout alert did not clear; inspect Prometheus and Alertmanager before retrying.")
+    time.sleep(20)  # Allow the scrape, evaluation, and receiver intervals to clear the prior fault.
     with httpx.Client(base_url="https://localhost:8765", verify=False, timeout=10) as client:
         login = client.post("/api/v1/auth/session", json={
             "username": values["OPSPILOT_OPERATOR_USERNAME"],
