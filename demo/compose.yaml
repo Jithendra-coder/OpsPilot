@@ -67,6 +67,7 @@ services:
 
   alertmanager:
     image: prom/alertmanager:v0.34.1
+    group_add: ["${OPSPILOT_DEMO_GID:-65534}"]
     command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager"]
     volumes:
       - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro

@@ -53,6 +53,9 @@ class DemoCredentialTests(unittest.TestCase):
                 self.assertNotEqual(values["OPSPILOT_OPERATOR_PASSWORD"], values["OPSPILOT_APPROVER_PASSWORD"])
                 self.assertGreaterEqual(len(token), 32)
                 self.assertEqual(token, values["OPSPILOT_ALERT_WEBHOOK_TOKEN"])
+                if os.name != "nt":
+                    self.assertEqual(values["OPSPILOT_DEMO_GID"], str(os.getgid()))
+                    self.assertEqual((state / "alertmanager-token").stat().st_mode & 0o777, 0o640)
 
     def test_fault_control_stays_inside_the_isolated_checkout_container(self):
         for enabled, state in ((True, "on"), (False, "off")):

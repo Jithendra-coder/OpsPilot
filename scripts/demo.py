@@ -43,6 +43,8 @@ def ensure_local_credentials() -> None:
             "OPSPILOT_APPROVER_PASSWORD": secrets.token_urlsafe(32),
             "OPSPILOT_ALERT_WEBHOOK_TOKEN": secrets.token_urlsafe(48),
         }
+        if os.name != "nt":
+            values["OPSPILOT_DEMO_GID"] = str(os.getgid())
         ENV_FILE.write_text("".join(f"{name}={value}\n" for name, value in values.items()), encoding="utf-8")
         if os.name != "nt":
             ENV_FILE.chmod(0o600)
@@ -51,13 +53,17 @@ def ensure_local_credentials() -> None:
         if "=" in line and not line.lstrip().startswith("#"):
             name, value = line.split("=", 1)
             values[name.strip()] = value.strip()
+    if os.name != "nt" and "OPSPILOT_DEMO_GID" not in values:
+        values["OPSPILOT_DEMO_GID"] = str(os.getgid())
+        with ENV_FILE.open("a", encoding="utf-8") as env_file:
+            env_file.write(f"OPSPILOT_DEMO_GID={values['OPSPILOT_DEMO_GID']}\n")
     token = values.get("OPSPILOT_ALERT_WEBHOOK_TOKEN", "")
     if len(token) < 32 or any(char.isspace() for char in token):
         raise SystemExit("The local Alertmanager token in .local-demo/demo.env must be 32+ non-whitespace characters.")
     if not TOKEN_FILE.exists() or TOKEN_FILE.read_text(encoding="utf-8") != token:
         TOKEN_FILE.write_text(token, encoding="utf-8")
-        if os.name != "nt":
-            TOKEN_FILE.chmod(0o600)
+    if os.name != "nt":
+        TOKEN_FILE.chmod(0o640)
 
 
 def compose(*arguments: str, check: bool = True) -> subprocess.CompletedProcess:
