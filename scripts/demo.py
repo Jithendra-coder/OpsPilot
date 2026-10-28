@@ -76,11 +76,12 @@ def set_fault(enabled: bool) -> None:
 
 def wait_for_app() -> None:
     context = ssl._create_unverified_context()
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context))
     deadline = time.monotonic() + 90
     last_health = None
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen("https://localhost:8765/api/v1/health", context=context, timeout=3) as response:
+            with opener.open("https://localhost:8765/api/v1/health", timeout=3) as response:
                 health = json.loads(response.read())
             last_health = health
             if health.get("status") == "ok" and health.get("database") == "ready":
