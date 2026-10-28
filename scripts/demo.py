@@ -77,16 +77,18 @@ def set_fault(enabled: bool) -> None:
 def wait_for_app() -> None:
     context = ssl._create_unverified_context()
     deadline = time.monotonic() + 90
+    last_health = None
     while time.monotonic() < deadline:
         try:
             with urllib.request.urlopen("https://localhost:8765/api/v1/health", context=context, timeout=3) as response:
                 health = json.loads(response.read())
+            last_health = health
             if health.get("status") == "ok" and health.get("database") == "ready":
                 return
         except (OSError, urllib.error.URLError, ValueError):
             pass
         time.sleep(1)
-    raise SystemExit("OpsPilot did not become ready; inspect `python -m scripts.demo status` and container logs.")
+    raise SystemExit("OpsPilot did not become ready; last health response: " + json.dumps(last_health, sort_keys=True))
 
 
 def verify_live_path() -> None:
