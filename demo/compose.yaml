@@ -120,8 +120,9 @@ services:
       context: ..
       dockerfile: Dockerfile
     environment:
-      OPSPILOT_HOST: 127.0.0.1
+      OPSPILOT_HOST: 0.0.0.0
       OPSPILOT_PORT: 8765
+      OPSPILOT_ALLOW_REMOTE: "true"
       OPSPILOT_DATA_DIR: /data
       OPSPILOT_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/opspilot
       OPSPILOT_CHECKPOINT_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/opspilot
@@ -152,20 +153,20 @@ services:
         condition: service_started
       otel-collector:
         condition: service_started
-    ports:
-      - "127.0.0.1:8765:443"
     networks: [lab]
     restart: unless-stopped
 
   caddy:
     image: caddy:2.11.7-alpine
-    network_mode: service:opspilot
     command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on: [opspilot]
+    ports:
+      - "127.0.0.1:8765:443"
+    networks: [lab]
     restart: unless-stopped
 
 networks:
