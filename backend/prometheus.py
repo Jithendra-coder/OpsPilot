@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import math
 import os
 import time
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlsplit
 
 import httpx
 
 import app as core
+from backend import provider_http
 
 MAX_RESPONSE = 1024 * 1024
 MAX_QUERIES = 25
@@ -25,21 +24,11 @@ def enabled():
 
 
 def configuration():
-    base = os.environ.get("OPSPILOT_PROMETHEUS_URL", "").strip().rstrip("/")
-    if not base:
-        return None
-    parsed = urlsplit(base)
-    url_invalid = len(base) > 2048
-    hostname = parsed.hostname or ""
     try:
-        parsed.port
+        url = provider_http.endpoint("OPSPILOT_PROMETHEUS_URL", "/api/v1/query_range")
+        if not url:
+            return None
     except ValueError:
-        url_invalid = True
-    try:
-        is_loopback = hostname.casefold() == "localhost" or ipaddress.ip_address(hostname).is_loopback
-    except ValueError:
-        is_loopback = hostname.casefold() == "localhost"
-    if url_invalid or (parsed.scheme != "https" and not (parsed.scheme == "http" and is_loopback)) or not parsed.netloc or parsed.username or parsed.password or parsed.query or parsed.fragment or ".." in parsed.path.split("/"):
         raise core.ApiError(503, "prometheus_configuration", "The configured Prometheus URL must use HTTPS or a loopback HTTP address.")
     try:
         raw = os.environ.get("OPSPILOT_PROMETHEUS_QUERIES", "")
@@ -54,31 +43,19 @@ def configuration():
         for signal, query in queries.items()
     ):
         raise core.ApiError(503, "prometheus_configuration", "Prometheus queries must map supported metric signal IDs to bounded PromQL expressions.")
-    token = os.environ.get("OPSPILOT_PROMETHEUS_TOKEN", "").strip()
-    if len(token) > 4096:
+    try:
+        token = provider_http.bearer_token("OPSPILOT_PROMETHEUS_TOKEN")
+    except ValueError:
         raise core.ApiError(503, "prometheus_configuration", "The Prometheus bearer token is too long.")
-    return base + "/api/v1/query_range", queries, token
+    return url, queries, token
 
 
 def _read_response(client, url, query, start, end, token, deadline):
-    headers = {"Authorization": "Bearer " + token} if token else {}
     step = max(60, math.ceil((end - start).total_seconds() / MAX_SAMPLES))
     try:
-        timeout = min(5, deadline - time.monotonic())
-        if timeout <= 0:
-            raise ValueError("Prometheus query budget expired.")
-        with client.stream("POST", url, data={"query": query, "start": str(start.timestamp()),
-            "end": str(end.timestamp()), "step": str(step), "limit": "1"}, headers=headers, timeout=timeout) as response:
-            if response.status_code != 200:
-                raise ValueError("Prometheus returned a non-success status.")
-            body = bytearray()
-            for chunk in response.iter_bytes(64 * 1024):
-                if time.monotonic() > deadline:
-                    raise ValueError("Prometheus query budget expired.")
-                body.extend(chunk)
-                if len(body) > MAX_RESPONSE:
-                    raise ValueError("Prometheus response exceeded its size limit.")
-        result = json.loads(body)
+        result = provider_http.json_response(client, "POST", url, data={"query": query, "start": str(start.timestamp()),
+            "end": str(end.timestamp()), "step": str(step), "limit": "1"}, token=token,
+            deadline=deadline, source="Prometheus")
         if result.get("status") != "success" or result.get("data", {}).get("resultType") != "matrix":
             raise ValueError("Prometheus returned an invalid query result.")
         series = result["data"].get("result")
@@ -89,13 +66,13 @@ def _read_response(client, url, query, start, end, token, deadline):
         raise core.ApiError(503, "prometheus_unavailable", "The configured metrics source could not return valid incident evidence.")
 
 
-def collect(incident, service_id, allowed, start_time=None, end_time=None, *, transport=None):
+def collect(incident, service_id, allowed, start_time=None, end_time=None, *, limit=MAX_SAMPLES, transport=None):
     config = configuration()
-    if not config:
+    if not config or limit <= 0:
         return []
     url, queries, token = config
     current = datetime.now(timezone.utc)
-    lower = datetime.fromisoformat(incident["created_at"].replace("Z", "+00:00")).astimezone(timezone.utc)
+    lower = datetime.fromisoformat(incident["created_at"].replace("Z", "+00:00")).astimezone(timezone.utc) - timedelta(minutes=1)
     lower = max(lower, current - timedelta(days=7))
     upper = current
     if start_time:
@@ -104,18 +81,17 @@ def collect(incident, service_id, allowed, start_time=None, end_time=None, *, tr
         upper = min(upper, end_time)
     if lower > upper:
         return []
-    client_options = {"timeout": 5, "follow_redirects": False, "trust_env": False}
-    if transport:
-        client_options["transport"] = transport
     records = []
     deadline = time.monotonic() + MAX_QUERY_SECONDS
     try:
-        with httpx.Client(**client_options) as client:
+        with httpx.Client(**provider_http.client_options(transport)) as client:
             for signal, query in queries.items():
                 service = core.SIGNAL_SERVICES[signal]
                 if service not in allowed or service_id and service != service_id:
                     continue
                 for item in _read_response(client, url, query, lower, upper, token, deadline):
+                    if len(records) >= min(limit, MAX_SAMPLES * MAX_QUERIES):
+                        break
                     if not isinstance(item, dict):
                         raise core.ApiError(503, "prometheus_unavailable", "The configured metrics source could not return valid incident evidence.")
                     labels = item.get("metric", {})
@@ -143,7 +119,9 @@ def collect(incident, service_id, allowed, start_time=None, end_time=None, *, tr
                             "observation": "Configured PromQL signal matched at value " + str(value),
                             "signal_id": signal, "severity": "warning", "observed_at": observed.isoformat().replace("+00:00", "Z"),
                             "provenance": "prometheus-http-api"})
+                        if len(records) >= min(limit, MAX_SAMPLES * MAX_QUERIES):
+                            break
     except httpx.HTTPError:
         raise core.ApiError(503, "prometheus_unavailable", "The configured metrics source could not return valid incident evidence.")
     records.sort(key=lambda item: item["observed_at"], reverse=True)
-    return records[:50]
+    return records[:min(limit, MAX_SAMPLES * MAX_QUERIES)]

@@ -1,47 +1,42 @@
 flowchart TD
-  Start([Operator selects replay or submitted incident]) --> Request["POST /api/v1/incidents/{id}/investigate<br/>Session · CSRF · idempotency key"]
-  Hook["Alert webhook creates incident + optional evidence"] -. "operator starts later" .-> Start
-  Request --> Gate{"Authenticated operator?<br/>Valid body, fields and state?"}
-  Gate -->|No| Reject["401 / 403 / 400 / 413<br/>Stop before workflow"]
-  Gate -->|Yes| Existing{"Completed run<br/>for this key?"}
-  Existing -->|Yes| Reuse["Return stored result"] --> Response["JSON result to browser console"]
-  Existing -->|No / failed| Run["Persist or reuse run ID<br/>LangGraph thread ID = run ID"]
-  Run --> Scope["Resolve incident and dependency scope"]
-  Scope --> Logs["Read logs"] --> Metrics["Read metrics"] --> Traces["Read traces"] --> Changes["Read combined change events"]
-  Changes --> Normalize["Deduplicate evidence<br/>Retain tool errors"]
-  Normalize --> Diagnose["Deterministic diagnosis<br/>≥2 distinct evidence kinds · no tool errors<br/>Lead of ≥2 kinds if competitor exists"]
-  Diagnose --> Consent{"Explicit consent +<br/>valid HTTPS provider?"}
-  Consent -->|No / disabled| Final["Keep deterministic status and cause"]
-  Consent -->|Yes| Rank["Optional model review<br/>Ranks fixed candidates · annotates missing evidence<br/>Cannot select cause or action"]
-  Rank --> Final
-  Rank -. "timeout / invalid / unavailable" .-> Final
-  Final --> Status{"Deterministic status<br/>is supported?"}
-  Status -->|No| Abstain["Inconclusive<br/>Keep findings; proposal unavailable"]
-  Status -->|Yes| Supported["Supported cause<br/>Recommendation remains deterministic"]
-  Abstain --> Persist["Persist result, evidence, tool outcomes,<br/>events and audit in SQLite"]
-  Supported --> Persist
-  Persist --> Response
-  Run -. "workflow exception" .-> Failed["Mark failed; return 503"]
-  Failed -. "retry original key" .-> Run
-  Response -. "operator later requests separate action" .-> Proposal["POST /api/v1/incidents/{id}/remediation/propose"]
-  Proposal --> Eligible{"Supported diagnosis?<br/>Active matching replay<br/>+ allowlisted action?"}
-  Eligible -->|No| Block["409 · no proposal or state change"]
-  Eligible -->|Yes| Approval["Store typed parameters + hash<br/>Approval expires in 30 minutes"]
-  Approval --> Reviewer{"Approver role<br/>approves exact parameters?"}
-  Reviewer -->|Reject| Rejected["Return incident to investigation"]
-  Reviewer -->|Expired / invalid| Expired["Block execution;<br/>fresh investigation + proposal required"]
-  Reviewer -->|Approve| Execute["Operator role executes once<br/>against simulator"]
-  Execute --> Verify{"Server checks health,<br/>symptom and scope"}
-  Verify -->|Pass| Resolved["Mark RESOLVED"]
-  Verify -->|Fail| Open["Remain unresolved in VERIFYING;<br/>escalate and preserve report"]
-  Execute -. "same key" .-> ReuseAction["Return saved execution result"]
-  Execute -. "different key" .-> Repeat["409 · duplicate execution blocked"]
+  Alert[Alertmanager or normalized alert] --> Intake[Authenticate, validate and deduplicate]
+  Intake --> Incident[Persist incident + optional normalized evidence]
+  Replay[Operator starts seeded replay] --> Incident
+  Incident --> Start[Operator starts investigation]
+  Start --> Gate{Valid operator, scope and request?}
+  Gate -->|No| Deny[Return an error; do not start workflow]
+  Gate -->|Yes| Idempotency{Completed run for key?}
+  Idempotency -->|Yes| Reuse[Return stored report]
+  Idempotency -->|No| Run[Persist run ID; use it as LangGraph checkpoint ID]
+  Run --> Sources[Read bounded logs, metrics, traces and change observations]
+  Sources --> Normalize[Keep provenance and timestamps; deduplicate evidence]
+  Sources -. Provider or tool failure .-> Error[Record tool error]
+  Normalize --> Diagnose[Deterministic signature evaluation]
+  Error --> Diagnose
+  Diagnose --> Confidence{Enough evidence, no tool errors,<br/>clear lead over competitors?}
+  Confidence -->|No| Abstain[Inconclusive; no action proposal]
+  Confidence -->|Yes| Supported[Evidence-linked cause + rationale]
+  Supported -. Optional, with consent .-> Model[Model can rank fixed candidates only]
+  Abstain --> Save[Persist result, evidence, events and audit trail]
+  Supported --> Save
+  Model --> Save
+  Save --> Report[Return report to browser, CLI or API client]
+  Report --> ProposalRequest[Operator separately requests proposal]
+  ProposalRequest --> Eligible{Supported cause + active matching replay<br/>+ allowlisted action?}
+  Eligible -->|No| ActionDenied[409; external incidents cannot use simulator actions]
+  Eligible -->|Yes| Proposal[Store immutable typed parameters + hash]
+  Proposal --> Review{Separate approver role approves<br/>before expiry?}
+  Review -->|No / expired| Stop[Block execution; investigate and propose again]
+  Review -->|Yes| Execute[Operator executes once in simulator]
+  Execute --> Verify{Server checks health,<br/>symptom and action scope}
+  Verify -->|Pass| Closed[Mark resolved; retain verification record]
+  Verify -->|Fail| Open[Keep incident unresolved; retain failure record]
 
   classDef process fill:#EFF6FF,stroke:#2563EB,color:#0F172A;
   classDef decision fill:#FFFBEB,stroke:#D97706,color:#0F172A;
   classDef success fill:#F0FDF4,stroke:#16A34A,color:#0F172A;
   classDef failure fill:#FEF2F2,stroke:#DC2626,color:#0F172A;
-  class Start,Request,Hook,Run,Scope,Logs,Metrics,Traces,Changes,Normalize,Diagnose,Rank,Final,Supported,Persist,Response,Reuse,ReuseAction,Proposal,Approval,Execute,Verify,Resolved process;
-  class Gate,Existing,Consent,Status,Eligible,Reviewer decision;
-  class Resolved success;
-  class Reject,Abstain,Block,Rejected,Expired,Open,Repeat,Failed failure;
+  class Alert,Intake,Incident,Replay,Start,Run,Sources,Normalize,Diagnose,Abstain,Supported,Model,Save,Report,ProposalRequest,Proposal,Execute,Verify process;
+  class Gate,Idempotency,Confidence,Eligible,Review decision;
+  class Reuse,Closed success;
+  class Deny,Error,Abstain,ActionDenied,Stop,Open failure;

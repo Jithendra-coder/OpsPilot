@@ -133,7 +133,7 @@ def run_investigation(incident_id: str, run_id: str):
     global _CHECKPOINT_SETUP_PATH
     initial: InvestigationState = {"incident_id": incident_id, "service_scope": [], "evidence": [], "tool_errors": [], "tool_history": []}
     config = {"configurable": {"thread_id": run_id}, "recursion_limit": 16}
-    postgres_url = os.environ.get("OPSPILOT_CHECKPOINT_DATABASE_URL")
+    postgres_url = os.environ.get("OPSPILOT_CHECKPOINT_DATABASE_URL") or os.environ.get("OPSPILOT_DATABASE_URL")
     if postgres_url:
         from langgraph.checkpoint.postgres import PostgresSaver
         with PostgresSaver.from_conn_string(postgres_url) as checkpointer:

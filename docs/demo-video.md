@@ -23,7 +23,7 @@
 | 0:46–0:59 | Show the bounded typed action and separate approval gate. | “OpsPilot proposes one typed, allowlisted action: restore the connection pool to sixty-four connections. The investigator cannot write, approve, or execute it.” |
 | 1:00–1:08 | Show the approver and operator roles. | “A different approver reviews the exact parameters. Then an operator runs the approved change once.” |
 | 1:08–1:17 | Finish on server-owned recovery checks and the retained incident record. | “Server-owned checks decide if the incident resolves. The approval and verification remain in the incident record.” |
-| 1:17–1:25 | Product name and the local/synthetic boundary. | “Evidence first. Action under human control. OpsPilot.” |
+| 1:17–1:25 | Product name and product promise. | “Evidence first. Action under human control. OpsPilot.” |
 
 ## Recording notes
 

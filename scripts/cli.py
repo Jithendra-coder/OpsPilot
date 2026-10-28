@@ -96,8 +96,11 @@ class ApiClient:
         except (UnicodeDecodeError, json.JSONDecodeError):
             raise ApiError(0, "invalid_response", "OpsPilot returned a response the CLI could not read as JSON.") from None
 
-    def login(self, password: str):
-        result = self.request("POST", "/auth/session", {"password": password})
+    def login(self, password: str, username: str | None = None):
+        payload = {"password": password}
+        if username:
+            payload["username"] = username
+        result = self.request("POST", "/auth/session", payload)
         if (result.get("authenticated") is not True or result.get("role") not in {"operator", "approver"}
                 or not result.get("csrf_token")):
             raise ApiError(0, "invalid_session", "The API did not return a valid OpsPilot session.")
@@ -460,11 +463,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     heading("OpsPilot | Incident command line")
     print(f"Connected to {client.base_url} ({clip(health.get('mode', 'API ready'), 50)}).")
-    print("Sign in with your existing operator or approver password. Input stays hidden.")
+    print("Team accounts use a username; leave it blank for the local role-password demo.")
     for attempt in range(3):
         try:
+            username = input("Username (optional): ").strip()
             password = getpass.getpass("Password: ")
-            session = client.login(password)
+            session = client.login(password, username or None)
             break
         except ApiError as exc:
             print(f"Sign-in failed ({exc.status}): {safe_text(exc.message)}")

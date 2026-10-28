@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import app as core
-from backend import prometheus
+from backend import loki, prometheus, tempo
 
 MAX_RESULTS = 50
 MAX_WINDOW = timedelta(days=7)
@@ -76,7 +76,8 @@ def _records(incident_id: str, kind: str, service_id: str | None, limit: int, st
         raise core.ApiError(403, "service_scope_denied", "The requested service is outside this incident's dependency scope.")
     start, end = _window(start_time, end_time)
     records = []
-    provider_enabled = False
+    provider = {"logs": loki, "metrics": prometheus, "traces": tempo}.get(kind)
+    provider_enabled = provider.enabled() if provider else False
     if scenario:
         observed_at = incident["created_at"]
         stamp = _timestamp(observed_at, "incident timestamp")
@@ -94,7 +95,7 @@ def _records(incident_id: str, kind: str, service_id: str | None, limit: int, st
         unavailable = [(source, message) for source, message in core.loads(scenario["errors"], []) if source == kind]
     else:
         with core.db() as con:
-            rows = con.execute("SELECT payload FROM incident_observations WHERE incident_id=? AND kind=? ORDER BY observed_at DESC,rowid DESC",
+            rows = con.execute("SELECT payload FROM incident_observations WHERE incident_id=? AND kind=? ORDER BY observed_at DESC,id DESC",
                 (incident_id,kind)).fetchall()
             has_observations = bool(rows) or bool(con.execute("SELECT 1 FROM incident_observations WHERE incident_id=? LIMIT 1",
                 (incident_id,)).fetchone())
@@ -106,10 +107,9 @@ def _records(incident_id: str, kind: str, service_id: str | None, limit: int, st
             if (start and stamp < start) or (end and stamp > end):
                 continue
             records.append(item)
-        if kind == "metrics":
-            provider_enabled = prometheus.enabled()
-            records.extend(prometheus.collect(incident, selected, allowed, start, end))
-        if not has_observations and not records and not provider_enabled:
+        if provider_enabled and len(records) < limit:
+            records.extend(provider.collect(incident, selected, allowed, start, end, limit=max(0, limit-len(records))))
+        if not has_observations and not records and not provider_enabled and kind != "changes":
             raise core.ApiError(503, "telemetry_unavailable", "No evidence has been submitted for this incident.")
         unavailable = []
     if unavailable:

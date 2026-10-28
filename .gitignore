@@ -41,6 +41,7 @@ temp/
 .superdesign/tmp/
 
 # Local credentials and certificates
+.local-demo/
 *.pem
 *.key
 credentials.json

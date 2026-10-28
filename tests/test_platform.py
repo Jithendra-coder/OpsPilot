@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import tempfile
 import time
@@ -11,9 +12,10 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import app
+import psycopg
 from fastapi.testclient import TestClient
 
-from backend import investigation_tools
+from backend import auth, investigation_tools
 from backend.asgi import app as api
 
 
@@ -37,7 +39,7 @@ class ProductionFlowTests(unittest.TestCase):
         with app.db() as con:
             for table in ("verification_results", "action_executions", "approval_requests", "remediation_proposals",
                 "lab_runs", "evidence", "incident_observations", "run_events", "investigations", "comments", "incident_events", "sessions",
-                "evaluations", "audit_events", "alerts", "incidents"):
+                "evaluations", "audit_events", "alerts", "incidents", "users"):
                 con.execute("DELETE FROM " + table)
         self.operator_csrf = self._login(self.operator, app.OPERATOR_PASSWORD, "operator")
         self.approver_csrf = self._login(self.approver, app.APPROVER_PASSWORD, "approver")
@@ -91,7 +93,7 @@ class ProductionFlowTests(unittest.TestCase):
         self.assertEqual(approval_detail["expected_result"], proposal["expected_result"])
 
         with app.db() as con:
-            with self.assertRaises(sqlite3.IntegrityError):
+            with self.assertRaises((sqlite3.IntegrityError, psycopg.IntegrityError)):
                 con.execute("UPDATE remediation_proposals SET parameters=? WHERE id=?", (json.dumps({"service_id": "postgres"}), proposal["id"]))
 
         direct_resolution = self._post(self.operator, self.operator_csrf, f"/api/v1/incidents/{incident['id']}/status",
@@ -255,6 +257,7 @@ class ProductionFlowTests(unittest.TestCase):
         replacement = self._post(self.operator, self.operator_csrf, f"/api/v1/incidents/{incident['id']}/remediation/propose", {})
         self.assertEqual(replacement.status_code, 201, replacement.text)
         self.assertNotEqual(replacement.json()["proposal"]["id"], proposal["id"])
+        self.assertEqual(replacement.json()["proposal"]["investigation_id"], retry.json()["investigation"]["id"])
 
     def test_webhook_authentication_deduplication_and_payload_conflict(self):
         token = "local-monitoring-webhook-token-0123456789"
@@ -279,6 +282,67 @@ class ProductionFlowTests(unittest.TestCase):
             self.assertEqual(response.status_code, 409)
             with app.db() as con:
                 self.assertEqual(con.execute("SELECT COUNT(*) FROM incident_observations WHERE incident_id=?", (created.json()["incident"]["id"],)).fetchone()[0], 1)
+
+    def test_named_team_accounts_replace_shared_login_and_disabled_users_lose_sessions(self):
+        operator_password = "oncall-operator-password-2026"
+        approver_password = "reviewer-approver-password-2026"
+        operator_salt, operator_hash = auth.hash_password(operator_password)
+        approver_salt, approver_hash = auth.hash_password(approver_password)
+        with app.db() as con:
+            con.execute("INSERT INTO users VALUES(?,?,?,?,? ,1,?,?)",
+                ("USR_oncall", "oncall", operator_hash, operator_salt, "operator", app.now(), app.now()))
+            con.execute("INSERT INTO users VALUES(?,?,?,?,? ,1,?,?)",
+                ("USR_reviewer", "incident-reviewer", approver_hash, approver_salt, "approver", app.now(), app.now()))
+        self.assertEqual(self.operator.post("/api/v1/auth/session", json={"password": app.OPERATOR_PASSWORD}).status_code, 401)
+        operator = self.operator.post("/api/v1/auth/session", json={"username": "OnCall", "password": operator_password})
+        approver = self.approver.post("/api/v1/auth/session", json={"username": "incident-reviewer", "password": approver_password})
+        self.assertEqual((operator.status_code, operator.json()["user"], operator.json()["role"]), (200, "oncall", "operator"))
+        self.assertEqual((approver.status_code, approver.json()["user"], approver.json()["role"]), (200, "incident-reviewer", "approver"))
+        with app.db() as con:
+            con.execute("UPDATE users SET active=0 WHERE id='USR_oncall'")
+        self.assertEqual(self.operator.get("/api/v1/auth/session").status_code, 401)
+
+    def test_alertmanager_intake_deduplicates_and_records_resolution_without_closing_incident(self):
+        token = "local-monitoring-webhook-token-0123456789"
+        started = app.now()
+        alert = {"fingerprint": "b" * 40, "startsAt": started,
+            "labels": {"service_id": "checkout", "severity": "critical", "alertname": "PoolSaturated"},
+            "annotations": {"summary": "Checkout database pool saturated",
+                "description": "The checkout pool is exhausted and requests are failing."}}
+        headers = {"Authorization": "Bearer " + token}
+        with patch.dict("os.environ", {"OPSPILOT_ALERT_WEBHOOK_TOKEN": token}):
+            denied = self.operator.post("/api/v1/webhooks/alertmanager", json={"alerts": [dict(alert, status="firing")]})
+            self.assertEqual(denied.status_code, 401)
+            firing = self.operator.post("/api/v1/webhooks/alertmanager",
+                json={"alerts": [dict(alert, status="firing")]}, headers=headers)
+            self.assertEqual(firing.status_code, 200, firing.text)
+            incident = firing.json()["incidents"][0]["incident"]
+            self.assertEqual(incident["source"], "alertmanager_webhook")
+            self.assertEqual(datetime.fromisoformat(incident["created_at"].replace("Z", "+00:00")),
+                datetime.fromisoformat(started.replace("Z", "+00:00")))
+            repeated = self.operator.post("/api/v1/webhooks/alertmanager",
+                json={"alerts": [dict(alert, status="firing")]}, headers=headers)
+            self.assertTrue(repeated.json()["incidents"][0]["deduplicated"])
+            resolved = self.operator.post("/api/v1/webhooks/alertmanager",
+                json={"alerts": [dict(alert, status="resolved", endsAt=app.now())]}, headers=headers)
+            self.assertEqual(resolved.status_code, 200, resolved.text)
+            self.assertEqual(resolved.json()["resolved_sources"][0]["opspilot_status"], incident["status"])
+        self.assertEqual(self.operator.get(f"/api/v1/incidents/{incident['id']}").json()["incident"]["status"], incident["status"])
+        with app.db() as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM incident_events WHERE incident_id=? AND kind='alert.source_resolved'",
+                (incident["id"],)).fetchone()[0], 1)
+
+    def test_missing_optional_change_feed_is_empty_evidence_not_a_tool_failure(self):
+        token = "local-monitoring-webhook-token-0123456789"
+        payload = {"alerts": [{"status": "firing", "fingerprint": "c" * 40, "startsAt": app.now(),
+            "labels": {"service_id": "checkout", "alertname": "CheckoutDegraded"},
+            "annotations": {"summary": "Checkout service is degraded"}}]}
+        with patch.dict("os.environ", {"OPSPILOT_ALERT_WEBHOOK_TOKEN": token}):
+            response = self.operator.post("/api/v1/webhooks/alertmanager", json=payload,
+                headers={"Authorization": "Bearer " + token})
+        self.assertEqual(response.status_code, 200, response.text)
+        incident_id = response.json()["incidents"][0]["incident"]["id"]
+        self.assertEqual(investigation_tools.get_deployment_history(incident_id)["items"], [])
 
     def test_manual_evidence_intake_investigation_and_multiple_records_per_kind(self):
         payload = self._external_payload()
@@ -316,7 +380,8 @@ class ProductionFlowTests(unittest.TestCase):
             "service_id": "checkout", "source": "prometheus:metric.db_pool_saturated",
             "observation": "Configured PromQL signal matched at value 0.97", "signal_id": "metric.db_pool_saturated",
             "severity": "warning", "observed_at": app.now(), "provenance": "prometheus-http-api"}
-        with patch.object(investigation_tools.prometheus, "collect", return_value=[metric]) as collect:
+        with patch.dict(os.environ, {"OPSPILOT_PROMETHEUS_URL": "https://metrics.example.test"}), \
+            patch.object(investigation_tools.prometheus, "collect", return_value=[metric]) as collect:
             response = self._post(self.operator, self.operator_csrf,
                 f"/api/v1/incidents/{incident['id']}/investigate", {"idempotency_key": "prometheus-run-0001"})
         self.assertEqual(response.status_code, 200, response.text)
@@ -324,6 +389,34 @@ class ProductionFlowTests(unittest.TestCase):
         collect.assert_called_once()
         report = self.operator.get(f"/api/v1/incidents/{incident['id']}/report").json()["report"]
         self.assertIn("prometheus-http-api", {item["provenance"] for item in report["evidence"]})
+
+    def test_loki_and_tempo_evidence_join_the_investigation_report(self):
+        payload = self._external_payload()
+        payload["evidence"] = [item for item in payload["evidence"] if item["kind"] == "metrics"]
+        created = self._post(self.operator, self.operator_csrf, "/api/v1/incidents", payload)
+        self.assertEqual(created.status_code, 201, created.text)
+        incident = created.json()["incident"]
+        stamp = app.now()
+        log_record = {"incident_id": incident["id"], "correlation_id": incident["correlation_id"],
+            "kind": "logs", "service_id": "checkout", "source": "loki:log.db_acquire_timeout",
+            "observation": "Configured Loki log filter matched.", "signal_id": "log.db_acquire_timeout",
+            "severity": "error", "observed_at": stamp, "provenance": "loki-http-api"}
+        trace_record = {"incident_id": incident["id"], "correlation_id": incident["correlation_id"],
+            "kind": "traces", "service_id": "checkout", "source": "tempo:trace.db_wait_high",
+            "observation": "Configured Tempo trace condition matched; duration 1840 ms.", "signal_id": "trace.db_wait_high",
+            "severity": "error", "observed_at": stamp, "provenance": "tempo-search-api", "trace_id": "a" * 32}
+        with patch.dict(os.environ, {"OPSPILOT_LOKI_URL": "https://logs.example.test", "OPSPILOT_TEMPO_URL": "https://traces.example.test"}), \
+            patch.object(investigation_tools.loki, "collect", return_value=[log_record]) as collect_logs, \
+            patch.object(investigation_tools.tempo, "collect", return_value=[trace_record]) as collect_traces:
+            response = self._post(self.operator, self.operator_csrf,
+                f"/api/v1/incidents/{incident['id']}/investigate", {"idempotency_key": "external-evidence-run-01"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["investigation"]["result"]["cause_id"], "db_pool")
+        collect_logs.assert_called_once()
+        collect_traces.assert_called_once()
+        report = self.operator.get(f"/api/v1/incidents/{incident['id']}/report").json()["report"]
+        provenances = {item["provenance"] for item in report["evidence"]}
+        self.assertTrue({"loki-http-api", "tempo-search-api"}.issubset(provenances))
 
     def test_evidence_intake_rejects_out_of_scope_and_mismatched_signals_atomically(self):
         payload = self._external_payload()

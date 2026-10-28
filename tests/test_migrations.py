@@ -28,8 +28,8 @@ class MigrationTests(unittest.TestCase):
                     version = con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
                     preserved = con.execute("SELECT id FROM evidence WHERE run_id='run_legacy'").fetchone()[0]
                     con.execute("INSERT INTO evidence VALUES('ev_legacy_2','run_legacy','logs','collector-2','2026-01-01T00:00:02Z','{}',NULL)")
-                self.assertTrue({"actor", "role"}.issubset(columns))
-                self.assertEqual(version, 2)
+                self.assertTrue({"actor", "role", "user_id"}.issubset(columns))
+                self.assertEqual(version, 3)
                 self.assertEqual(preserved, "ev_legacy")
             finally:
                 app.DATA, app.DB_PATH = previous_data, previous_db

@@ -18,11 +18,13 @@
       </a>
       <p class="eyebrow">INCIDENT OPERATIONS</p>
       <h1 id="auth-title">Good to have you back.</h1>
-      <p class="muted">Use your operator password to investigate and run approved replay actions, or the separate approver password to review proposals.</p>
+      <p class="muted">Sign in with your team account. For a fresh local demo, use the configured operator or approver password.</p>
       <form id="login-form" class="form-stack">
+        <label for="login-username">Username <span class="muted">(team accounts)</span></label>
+        <input id="login-username" name="username" type="text" autocomplete="username" maxlength="64" autofocus>
         <label for="login-password">Access password</label>
         <div class="password-wrap">
-          <input id="login-password" name="password" type="password" autocomplete="current-password" required autofocus>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required>
           <button class="icon-button" type="button" id="toggle-password" aria-label="Show password" title="Show password">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.7"/></svg>
           </button>

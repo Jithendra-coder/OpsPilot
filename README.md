@@ -2,15 +2,17 @@
 
 [![CI](https://github.com/Jithendra-coder/OpsPilot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Jithendra-coder/OpsPilot/actions/workflows/ci.yml)
 
-OpsPilot is an incident investigation console for SRE and backend teams. It brings incident-scoped evidence into a checkpointed investigation, checks deterministic cause signatures, and lets an operator request a typed simulator action for review by the separate approver role.
+OpsPilot is an incident investigation platform for SRE and backend teams. It turns a service alert into a reviewable, time-bounded evidence set and an explainable cause assessment, then gates any response behind a separate human approval and server-recorded verification.
+
+The investigation workflow gathers bounded logs, metrics, traces, and change observations, preserves their source and timestamps, and matches them against deterministic cause signatures. Missing or conflicting evidence stays inconclusive. For eligible seeded cases, the operator can propose a typed action; a separate approver reviews its exact parameters; execution changes only the local simulator; and server-recorded checks determine whether the case resolves. The browser console, interactive CLI, versioned API, and read-only MCP tools expose the same incident workflow.
 
 **Investigate with evidence. Keep every action behind a role-gated approval and server verification.**
 
-Use the same application through its browser console, interactive CLI, or versioned API. The guided case uses bundled scenario evidence; configured alert, normalized-evidence, and Prometheus inputs are also supported, and read-only MCP tools are available. Actions change simulator state only.
+The Compose demo runs a separate instrumented checkout service: Prometheus alerts through Alertmanager, while Loki and Tempo receive its OTLP logs and traces. OpsPilot reads those sources through bounded adapters. Bundled replay scenarios demonstrate the approval and simulator workflow separately. No action targets external infrastructure. See the [project overview and resume-ready description](docs/project-overview.md).
 
 The website has one introduction page at `/`; **Get started** opens the console at `/console`. The console's six navigation items are views in that same application.
 
-**Start here:** [Quick start](#quick-start) · [Guided walkthrough](#guided-walkthrough) · [CLI-only package](#cli-only-package) · [Connect a service](#connect-an-existing-service) · [API and integrations](#api-and-integrations) · [Verification](#development-and-verification)
+**Start here:** [Quick start](#quick-start) · [Live telemetry demo](#live-telemetry-demo) · [Guided walkthrough](#guided-walkthrough) · [CLI-only package](#cli-only-package) · [Connect a service](#connect-an-existing-service) · [Verification](#development-and-verification)
 
 ## Quick start
 
@@ -63,6 +65,28 @@ In a second terminal run `.venv/bin/python -m scripts.cli`. The API listens on l
 
 OpsPilot enforces separate operator and approver roles. The credentials are shared locally, so the demo shows role separation; it does not prove that two distinct people participated.
 
+### Team accounts
+
+The local demo starts with separate operator and approver passwords. For named team identities, start the app once to initialize its database, then create accounts from a trusted host terminal:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.accounts add --username analyst --role operator
+.\.venv\Scripts\python.exe -m scripts.accounts add --username reviewer --role approver
+.\.venv\Scripts\python.exe -m scripts.accounts list
+```
+
+The account tool prompts for a 16+ character password without displaying it. Once the first named account exists, shared role-password sign-in is disabled and old local sessions are revoked. Reset or disable accounts with `set-password` or `disable`; disabling also revokes that user's sessions. This tool requires trusted access to the application host and database.
+
+### Move an existing SQLite installation to PostgreSQL
+
+Stop the app, back up its data directory, ensure no investigation is running or failed, and configure `OPSPILOT_DATABASE_URL` to a fresh PostgreSQL database. Then run:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.migrate_to_postgres
+```
+
+The migration preserves SQLite records and leaves the source files in place. It refuses to write into a PostgreSQL target that already has application records. LangGraph uses the same PostgreSQL URL for checkpoints unless `OPSPILOT_CHECKPOINT_DATABASE_URL` overrides it. Protect the connection URL with a secret store; do not pass it as a command-line argument.
+
 ### Repeatable local credentials
 
 Use distinct random passwords of at least 16 characters. These PowerShell commands keep values in the current process environment, not in the repository:
@@ -74,6 +98,22 @@ $env:OPSPILOT_APPROVER_PASSWORD = (.\.venv\Scripts\python.exe -c "import secrets
 ```
 
 On macOS/Linux, generate values with Python or load them from a protected secret manager. Do not commit credentials. If unset, use the one-time values printed by the server.
+
+## Live telemetry demo
+
+The isolated Compose lab shows the full alert-to-investigation path with a running checkout service. Its fault switch produces real local Prometheus metrics, OTLP logs, and traces. Prometheus sends the firing alert through Alertmanager; OpsPilot reads matching observations from Prometheus, Loki, and Tempo. This demo does not connect to or change an external service.
+
+Requirements: Docker Compose or Podman Compose. From the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.demo up
+.\.venv\Scripts\python.exe -m scripts.demo verify
+.\.venv\Scripts\python.exe -m scripts.demo down
+```
+
+On macOS/Linux, use `.venv/bin/python -m scripts.demo` with the same commands.
+
+Open `https://localhost:8765` and sign in with the generated credentials in `.local-demo/demo.env`. The local HTTPS certificate is not automatically trusted; review it and follow the instructions from `python -m scripts.demo trust` if you want browser trust. Use `python -m scripts.demo fault` and `python -m scripts.demo recover` to control the checkout failure manually. `verify` triggers the failure, confirms all three provider sources support the diagnosis, checks that external remediation is rejected, and clears the fault when it finishes. `down` removes the containers and preserves local volumes and credentials. Each `up` rebuilds and recreates the containers while reusing those volumes. See [demo operations](docs/runbook.md#live-telemetry-demo).
 
 ### Container deployment (full repository)
 
@@ -125,17 +165,25 @@ requirements.txt
 backend/                 API, investigation, evidence, integrations
   __init__.py
   asgi.py
+  alertmanager.py
+  auth.py
+  database.py
   investigation_tools.py
   llm.py
+  loki.py
   mcp_server.py
   prometheus.py
+  provider_http.py
+  tempo.py
   telemetry.py
   workflow.py
 scripts/
   __init__.py
+  accounts.py
   backup.py
   cli.py
   evaluate.py
+  migrate_to_postgres.py
   smoke_load.py
 ```
 
@@ -178,7 +226,7 @@ python3.11 -m venv .venv
 
 In a second terminal run `.venv/bin/python -m scripts.cli` from that package folder.
 
-The CLI checks readiness, prompts for a password without echoing it, uses the API session cookie and CSRF token, then revokes the session on exit. It does not start the API. Select another API origin with `--url` or `OPSPILOT_URL`:
+The CLI checks readiness, prompts for an optional username and a hidden password, uses the API session cookie and CSRF token, then revokes the session on exit. It does not start the API. Select another API origin with `--url` or `OPSPILOT_URL`:
 
 ```powershell
 .\.venv\Scripts\python.exe -m scripts.cli --url https://opspilot.example.com
@@ -190,16 +238,20 @@ Remote URLs require HTTPS; plain HTTP is allowed only for loopback. The API rema
 
 OpsPilot is a separate incident service, not an agent library that automatically installs into or instruments an application. Supported inputs are:
 
-1. **Alerts:** authenticated `POST /api/v1/webhooks/alerts`.
-2. **Normalized evidence:** send with an alert or attach to a manual incident before its first investigation. Logs, traces, and change events use this push contract; they have no provider-specific readers.
-3. **Prometheus:** configure the base URL and PromQL mappings to supported metric signal IDs. Queries are read-only and bounded by service scope and incident window.
-4. **MCP:** run `python -m backend.mcp_server` as a trusted stdio child process to expose ten read-only, incident-scoped tools.
+1. **Alerts:** authenticated `POST /api/v1/webhooks/alerts` for normalized alerts or `POST /api/v1/webhooks/alertmanager` for Alertmanager firing/resolved notifications.
+2. **Normalized evidence:** send with an alert or attach to a manual incident before its first investigation. Logs, traces, metrics, and change events can be submitted through this contract.
+3. **Prometheus:** configure read-only PromQL mappings to supported metric signal IDs.
+4. **Loki:** configure supported log signal IDs to literal line filters. OpsPilot adds a fixed `service_name` selector and does not retain returned log lines.
+5. **Tempo:** configure supported trace signal IDs to a single bounded attribute comparison. OpsPilot adds a fixed `resource.service.name` selector.
+6. **MCP:** run `python -m backend.mcp_server` as a trusted stdio child process to expose ten read-only, incident-scoped tools.
+
+Provider queries cover up to one minute before the alert timestamp to account for alert evaluation delay, then the incident window (at most seven days), and stay within the incident's registered service dependency scope. Each provider call is bounded by mapped query and result counts, a one-megabyte response, five seconds per request, and 15 seconds total. A provider failure is recorded as unavailable evidence and prevents a supported diagnosis. Configure read-only provider credentials and validate every signal mapping against real source events.
 
 Map your service into OpsPilot's service registry, use actual event timestamps, choose supported signal IDs, and validate source mappings against known events. Unknown signals remain evidence but cannot match a deterministic diagnosis. Observation text and provenance are caller-provided and not independently verified.
 
 ## Incident workflow
 
-1. Start a seeded replay, create a manual incident, or submit an authenticated alert.
+1. Start a seeded replay, create a manual incident, or submit an authenticated normalized or Alertmanager alert.
 2. Review service scope, dependencies, evidence timestamps/provenance, and unavailable tools.
 3. Run the read-only investigation. It gathers bounded observations, checks deterministic signatures, and records findings, evidence, tool outcomes, and timeline. Insufficient or conflicting evidence stays inconclusive.
 4. Review the report and evidence before deciding what to do.
@@ -249,6 +301,8 @@ $body = @{
 Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/api/v1/webhooks/alerts" -Headers $headers -Body $body
 ```
 
+For Alertmanager, use `POST /api/v1/webhooks/alertmanager` with the same bearer token and its standard webhook JSON. A firing alert needs a registered `service_id` label, `fingerprint`, timezone-aware `startsAt`, and may include `severity`, `summary`, and `description`. Set `send_resolved: true` to record resolution updates. They are added to the timeline for operator review; they do not resolve OpsPilot incidents automatically. See [API contracts](docs/api.md#alertmanager-webhook) for accepted fields and behavior.
+
 An incident accepts up to 25 records of kind `logs`, `metrics`, `traces`, or `changes`. Timestamps must be timezone-aware and within the prior seven days; observations are limited to 1,200 characters. Service/signal scope is checked. Exact retries with the same correlation ID deduplicate; reusing an ID with a different payload is rejected.
 
 ### Prometheus configuration
@@ -280,11 +334,18 @@ It runs over local stdio, does not open a network listener, and exposes bounded 
 | `OPSPILOT_HOST` / `OPSPILOT_PORT` | Listener address/port; defaults to `127.0.0.1` / `8765`. |
 | `OPSPILOT_PASSWORD` / `OPSPILOT_APPROVER_PASSWORD` | Distinct credentials, at least 16 characters; random values print at startup if unset. |
 | `OPSPILOT_URL` | CLI API origin; defaults to loopback. Remote origins must use HTTPS. |
+| `OPSPILOT_DATABASE_URL` | Optional PostgreSQL operational store; LangGraph uses it for checkpoints unless a checkpoint URL overrides it. SQLite remains the default local store. |
 | `OPSPILOT_ALERT_WEBHOOK_TOKEN` | Optional webhook bearer token, at least 32 characters. |
-| `OPSPILOT_CHECKPOINT_DATABASE_URL` | Optional PostgreSQL URL for LangGraph checkpoints only; incidents remain in SQLite. |
+| `OPSPILOT_CHECKPOINT_DATABASE_URL` | Optional PostgreSQL URL overriding the LangGraph checkpoint store URL. |
 | `OPSPILOT_PROMETHEUS_URL` | Optional Prometheus URL; HTTP only for loopback. |
 | `OPSPILOT_PROMETHEUS_QUERIES` | JSON map of supported metric signal IDs to service-scoped PromQL. |
 | `OPSPILOT_PROMETHEUS_TOKEN` | Optional Prometheus bearer token; use read-only access. |
+| `OPSPILOT_LOKI_URL` | Optional Loki base URL; HTTPS is required except for loopback development. |
+| `OPSPILOT_LOKI_QUERIES` | JSON map of supported log signal IDs to literal log-line substrings; service scope is added by OpsPilot. |
+| `OPSPILOT_LOKI_TOKEN` | Optional Loki bearer token; use read-only access. |
+| `OPSPILOT_TEMPO_URL` | Optional Tempo base URL; HTTPS is required except for loopback development. |
+| `OPSPILOT_TEMPO_QUERIES` | JSON map of supported trace signal IDs to one attribute equality/inequality condition; service scope is added by OpsPilot. |
+| `OPSPILOT_TEMPO_TOKEN` | Optional Tempo bearer token; use read-only access. |
 | `OPSPILOT_ALLOW_REMOTE` | Set `true` for non-loopback; also needs configured credentials, HTTPS origin, and secure cookies. |
 | `OPSPILOT_PUBLIC_ORIGIN` | Exact HTTPS origin behind a trusted TLS proxy. |
 | `OPSPILOT_COOKIE_SECURE` | Set `true` when public origin uses HTTPS. |
@@ -338,10 +399,10 @@ Check recovered incidents and checkpoints before routing operators to the restor
 | --- | --- |
 | Web UI | Static HTML, CSS, and JavaScript served by FastAPI. |
 | API | FastAPI, Uvicorn, and Starlette; versioned JSON endpoints. |
-| Incident/audit data | SQLite. |
-| Workflow | LangGraph with SQLite checkpoints by default; optional PostgreSQL checkpoint store. |
+| Incident/audit data | SQLite by default; PostgreSQL with `OPSPILOT_DATABASE_URL`. |
+| Workflow | LangGraph with SQLite checkpoints by default; PostgreSQL when the operational URL is set or a checkpoint URL is configured. |
 | Diagnosis | Deterministic evidence-linked matching; optional model ranking only reorders supported candidates. |
-| Evidence tools | Ten bounded MCP tools, normalized observations, optional Prometheus metrics. |
+| Evidence tools | Ten bounded MCP tools, authenticated alerts, normalized observations, and optional Prometheus, Loki, and Tempo readers. |
 | Remediation | Typed allowlist, separate approver and operator roles, idempotent execution, server-side simulator verification. |
 | Observability | Prometheus-format request metrics and optional OpenTelemetry OTLP export. |
 
@@ -351,7 +412,7 @@ See [system architecture](docs/architecture.md), [security boundary](docs/securi
 
 ## Production deployment boundary
 
-The container runs non-root, has a database readiness check, and can sit behind a trusted TLS reverse proxy. Remote binding requires explicit opt-in and secure configuration. This is not a turnkey multi-tenant hosted incident platform: it uses two shared role credentials, has no tenant/per-user authorization, stores incident records in SQLite, and executes only against the isolated simulator. Before connecting production workloads, add managed identity, tenant authorization, hosted storage/HA, and deployment-target testing, then complete an organization-specific security review. Never point the simulator action interface at a real service.
+The container runs non-root, has a database readiness check, and can sit behind a trusted TLS reverse proxy. Remote binding requires explicit opt-in, PostgreSQL, active named operator and approver accounts, an HTTPS origin, and secure cookies. Named accounts are managed on the trusted host; SSO, MFA, and tenant isolation are not included. Remediation remains isolated to the local simulator. Never point the simulator action interface at a real service.
 
 ## Troubleshooting
 
@@ -366,7 +427,7 @@ The container runs non-root, has a database readiness check, and can sit behind 
 | Investigation inconclusive | Check signal IDs, timestamps, scope, conflicts, and unavailable-source results. Inconclusive findings cannot trigger actions. |
 | Action cannot be proposed | Only eligible seeded simulator cases can create proposals. |
 | Approval expired | Re-investigate and request a new proposal; approvals expire after 30 minutes. |
-| PostgreSQL did not move incident data | PostgreSQL configures workflow checkpoints only; incidents remain in SQLite. |
+| PostgreSQL data is not active | Set `OPSPILOT_DATABASE_URL` before app startup; LangGraph uses it for checkpoints unless the checkpoint URL overrides it. |
 
 ## Repository layout
 

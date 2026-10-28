@@ -639,11 +639,15 @@ document.getElementById("login-form").addEventListener("submit", async function 
   error.textContent = "";
   button.disabled = true;
   try {
-    const result = await api("/api/v1/auth/session", { method: "POST", body: JSON.stringify({ password: document.getElementById("login-password").value }) });
+    const payload = { password: document.getElementById("login-password").value };
+    const username = document.getElementById("login-username").value.trim();
+    if (username) payload.username = username;
+    const result = await api("/api/v1/auth/session", { method: "POST", body: JSON.stringify(payload) });
     state.csrf = result.csrf_token;
     state.user = result.user;
     state.role = result.role;
     document.getElementById("login-password").value = "";
+    document.getElementById("login-username").value = "";
     showApp();
     await refresh();
   } catch (failure) { error.textContent = failure.message; }

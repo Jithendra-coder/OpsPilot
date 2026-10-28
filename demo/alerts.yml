@@ -1,0 +1,13 @@
+groups:
+  - name: opspilot-demo
+    rules:
+      - alert: CheckoutDatabasePoolSaturated
+        expr: checkout_db_pool_utilization{service_id="checkout"} > 0.9
+        for: 10s
+        labels:
+          service_id: checkout
+          severity: critical
+          owner: Commerce
+        annotations:
+          summary: Checkout database pool is saturated
+          description: The checkout demo service is failing database connection acquisition.

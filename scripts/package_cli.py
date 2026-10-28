@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_NAME = "opspilot-cli"
 SCRIPT_FILES = tuple(Path("scripts") / name for name in (
-    "__init__.py", "backup.py", "cli.py", "evaluate.py", "smoke_load.py"))
+    "__init__.py", "accounts.py", "backup.py", "cli.py", "evaluate.py", "migrate_to_postgres.py", "smoke_load.py"))
 FIXED_FILES = (Path("app.py"), Path("requirements.txt")) + SCRIPT_FILES
 
 

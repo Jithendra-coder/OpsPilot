@@ -1,53 +1,50 @@
 flowchart LR
-  subgraph Clients["CLIENTS & ENTRY POINTS"]
-    Browser["Operator / approver<br/>Static browser UI"]
-    Alert["Alert sender<br/>Bearer-auth evidence push"]
-    McpHost["Local MCP host"]
-  end
+  Operator[Operator / approver] --> Browser[Product introduction + browser console]
+  Operator --> CLI[Interactive CLI]
+  Alertmanager[Prometheus Alertmanager] -->|Authenticated firing / resolved webhook| API
+  Manual[Normalized alert + evidence] --> API
+  Checkout[Instrumented checkout demo] --> Prometheus[Prometheus metrics + alert rules]
+  Checkout --> Collector[OpenTelemetry Collector]
+  Prometheus --> Alertmanager
+  Collector --> Loki[Loki logs]
+  Collector --> Tempo[Tempo traces]
 
-  subgraph Runtime["OPSPILOT API PROCESS · UVICORN · ONE WORKER"]
-    ASGI["FastAPI ASGI shell<br/>Static routes · headers · request telemetry"]
-    Adapter["Versioned API adapter<br/>64 KiB cap · Starlette threadpool"]
-    Handler["Synchronous Handler.route<br/>Session · role · CSRF · input checks"]
-    Incident["Incident lifecycle<br/>SQLite transactions · idempotency"]
-    Graph["Checkpointed LangGraph<br/>Scope → logs → metrics → traces → one change stream"]
-    Diagnosis["Deterministic signature engine<br/>Inconclusive on weak or failed evidence"]
-    Catalog["Shared bounded read-only tool catalog<br/>Fixtures or submitted observations · scoped · bounded"]
-    Action["Typed remediation gate<br/>Immutable parameters · two-person approval"]
-    Verify["Simulator executor + server-owned verification"]
-    ASGI --> Adapter --> Handler --> Incident --> Graph
-    Graph --> Catalog --> Graph
-    Graph --> Diagnosis --> Incident
-    Incident --> Action --> Verify --> Incident
-  end
-
-  subgraph State["PERSISTENT STATE"]
-    OpsDB[("SQLite operational store<br/>opspilot.db")]
-    Checkpoint[("LangGraph checkpoint<br/>SQLite default · optional PostgreSQL")]
-  end
-
-  subgraph Adjacent["SEPARATE OR OPTIONAL CONNECTIONS"]
-    MCP["Local MCP stdio server<br/>10 read-only tools"]
-    LLM["OpenAI-compatible HTTPS provider<br/>Explicit consent · ranking only"]
-    Metrics["Prometheus registry<br/>Optional OTLP traces + metrics"]
+  subgraph App[OpsPilot API process]
+    ASGI[FastAPI ASGI shell]
+    API[Versioned API + role, session, CSRF and input checks]
+    Graph[Checkpointed LangGraph investigation]
+    Tools[Incident-scoped bounded read tools]
+    Diagnose[Deterministic diagnosis + explicit abstention]
+    Proposal[Typed allowlisted proposal]
+    Approval[Separate approver decision]
+    Execute[Simulator-only execution]
+    Verify[Server-owned verification]
+    ASGI --> API --> Graph --> Tools --> Diagnose
+    API --> Proposal --> Approval --> Execute --> Verify --> API
   end
 
   Browser --> ASGI
-  Alert --> Adapter
-  Handler --> OpsDB
-  Catalog --> OpsDB
-  Incident --> OpsDB
+  CLI --> API
+  Graph -->|Optional: candidate ranking only, consent + HTTPS| Model[OpenAI-compatible provider]
+  Tools --> State
+  State --> Prometheus
+  State --> Loki
+  State --> Tempo
+  State --> Fixtures[Replay cases + normalized observations]
+  MCPHost[Local MCP host] --> MCP[Stdio MCP adapter · read-only]
+  MCP --> Tools
+
+  API --> OpsDB[(Operational store · SQLite or PostgreSQL)]
+  Tools --> OpsDB
   Verify --> OpsDB
-  Graph <--> Checkpoint
-  McpHost --> MCP --> Catalog
-  Graph -. "consent + HTTPS" .-> LLM
-  ASGI --> Metrics
+  Graph --> Checkpoint[(LangGraph checkpoints · SQLite or PostgreSQL)]
+  Execute -->|Eligible replay cases only| Sandbox[Seeded simulator state]
 
   classDef core fill:#EFF6FF,stroke:#2563EB,color:#0F172A;
   classDef store fill:#F0FDFA,stroke:#0F766E,color:#0F172A;
   classDef optional fill:#FFFBEB,stroke:#B45309,color:#0F172A;
   classDef entry fill:#FFFFFF,stroke:#94A3B8,color:#0F172A;
-  class Browser,Alert,McpHost entry;
-  class ASGI,Adapter,Handler,Incident,Graph,Diagnosis,Catalog,Action,Verify core;
-  class OpsDB,Checkpoint store;
-  class MCP,LLM,Metrics optional;
+  class Operator,Browser,CLI,Alertmanager,Manual,Checkout,Prometheus,Collector,MCPHost entry;
+  class ASGI,API,Graph,Tools,Diagnose,Proposal,Approval,Execute,Verify,MCP core;
+  class OpsDB,Checkpoint,Sandbox,Fixtures,Loki,Tempo,State store;
+  class Model optional;

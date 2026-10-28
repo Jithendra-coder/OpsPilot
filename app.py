@@ -182,10 +182,14 @@ def loads(value,default=None):
 
 @contextmanager
 def db():
-    con=sqlite3.connect(DB_PATH,timeout=15)
-    con.row_factory=sqlite3.Row
-    con.execute("PRAGMA foreign_keys=ON")
-    con.execute("PRAGMA busy_timeout=15000")
+    if postgres_enabled():
+        from backend.database import connect
+        con=connect(os.environ["OPSPILOT_DATABASE_URL"])
+    else:
+        con=sqlite3.connect(DB_PATH,timeout=15)
+        con.row_factory=sqlite3.Row
+        con.execute("PRAGMA foreign_keys=ON")
+        con.execute("PRAGMA busy_timeout=15000")
     try:
         yield con
         con.commit()
@@ -194,6 +198,15 @@ def db():
         raise
     finally:
         con.close()
+
+def postgres_enabled():
+    return bool(os.environ.get("OPSPILOT_DATABASE_URL"))
+
+def database_error_types():
+    if postgres_enabled():
+        import psycopg
+        return sqlite3.Error, psycopg.Error
+    return (sqlite3.Error,)
 
 def scenarios():
     rows=[]
@@ -217,7 +230,8 @@ def scenarios():
 def initialize():
     DATA.mkdir(parents=True,exist_ok=True)
     with db() as con:
-        con.execute("PRAGMA journal_mode=WAL")
+        if postgres_enabled(): con.execute("SELECT pg_advisory_xact_lock(743298104)")
+        else: con.execute("PRAGMA journal_mode=WAL")
         con.executescript("""
         CREATE TABLE IF NOT EXISTS services(id TEXT PRIMARY KEY,name TEXT NOT NULL,tier TEXT NOT NULL,owner TEXT NOT NULL,description TEXT NOT NULL,dependencies TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL);
@@ -231,7 +245,8 @@ def initialize():
         CREATE TABLE IF NOT EXISTS evidence(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,kind TEXT NOT NULL,source TEXT NOT NULL,observed_at TEXT NOT NULL,payload TEXT NOT NULL,signal_id TEXT,FOREIGN KEY(run_id) REFERENCES investigations(id) ON DELETE CASCADE);
         CREATE TABLE IF NOT EXISTS incident_observations(id TEXT PRIMARY KEY,incident_id TEXT NOT NULL,kind TEXT NOT NULL,service_id TEXT NOT NULL,source TEXT NOT NULL,observed_at TEXT NOT NULL,payload TEXT NOT NULL,signal_id TEXT,received_at TEXT NOT NULL,FOREIGN KEY(incident_id) REFERENCES incidents(id) ON DELETE CASCADE);
         CREATE INDEX IF NOT EXISTS idx_incident_observations_scope ON incident_observations(incident_id,kind,observed_at DESC);
-        CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,csrf TEXT NOT NULL,created_at TEXT NOT NULL,expires_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,username TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,password_salt TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('operator','approver')),active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,csrf TEXT NOT NULL,created_at TEXT NOT NULL,expires_at TEXT NOT NULL,actor TEXT NOT NULL DEFAULT 'Local operator',role TEXT NOT NULL DEFAULT 'operator',user_id TEXT REFERENCES users(id));
         CREATE TABLE IF NOT EXISTS evaluations(id TEXT PRIMARY KEY,started_at TEXT NOT NULL,completed_at TEXT NOT NULL,case_count INTEGER NOT NULL,accuracy REAL NOT NULL,inconclusive INTEGER NOT NULL,report TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS comments(id TEXT PRIMARY KEY,incident_id TEXT NOT NULL,actor TEXT NOT NULL,created_at TEXT NOT NULL,body TEXT NOT NULL,FOREIGN KEY(incident_id) REFERENCES incidents(id) ON DELETE CASCADE);
         CREATE TABLE IF NOT EXISTS alerts(id TEXT PRIMARY KEY,incident_id TEXT NOT NULL,source_key TEXT NOT NULL UNIQUE,payload_hash TEXT NOT NULL,received_at TEXT NOT NULL,FOREIGN KEY(incident_id) REFERENCES incidents(id));
@@ -245,28 +260,48 @@ def initialize():
         CREATE TABLE IF NOT EXISTS verification_results(id TEXT PRIMARY KEY,execution_id TEXT NOT NULL UNIQUE,incident_id TEXT NOT NULL,passed INTEGER NOT NULL,checked_at TEXT NOT NULL,checks TEXT NOT NULL,FOREIGN KEY(execution_id) REFERENCES action_executions(id),FOREIGN KEY(incident_id) REFERENCES incidents(id));
         CREATE TABLE IF NOT EXISTS audit_events(id TEXT PRIMARY KEY,actor TEXT NOT NULL,role TEXT NOT NULL,action TEXT NOT NULL,target_id TEXT NOT NULL,created_at TEXT NOT NULL,details TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_audit_target_time ON audit_events(target_id,created_at DESC);
-        CREATE TRIGGER IF NOT EXISTS immutable_proposal_parameters BEFORE UPDATE OF incident_id,investigation_id,action_type,parameters,parameter_hash ON remediation_proposals BEGIN SELECT RAISE(ABORT,'proposal parameters are immutable'); END;
         """)
-        version=con.execute("SELECT COALESCE(MAX(version),0) FROM schema_migrations").fetchone()[0]
-        if version<1:
-            con.execute("BEGIN IMMEDIATE")
-            session_columns={row["name"] for row in con.execute("PRAGMA table_info(sessions)")}
-            if "actor" not in session_columns: con.execute("ALTER TABLE sessions ADD COLUMN actor TEXT NOT NULL DEFAULT 'Local operator'")
-            if "role" not in session_columns: con.execute("ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'operator'")
-            con.execute("INSERT INTO schema_migrations VALUES(1,?)",(now(),))
-        if version<2:
-            if not con.in_transaction: con.execute("BEGIN IMMEDIATE")
-            con.execute("ALTER TABLE evidence RENAME TO evidence_v1")
-            con.execute("CREATE TABLE evidence(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,kind TEXT NOT NULL,source TEXT NOT NULL,observed_at TEXT NOT NULL,payload TEXT NOT NULL,signal_id TEXT,FOREIGN KEY(run_id) REFERENCES investigations(id) ON DELETE CASCADE)")
-            con.execute("INSERT INTO evidence SELECT id,run_id,kind,source,observed_at,payload,signal_id FROM evidence_v1")
-            con.execute("DROP TABLE evidence_v1")
-            con.execute("CREATE INDEX idx_evidence_run_time ON evidence(run_id,observed_at DESC)")
-            con.execute("INSERT INTO schema_migrations VALUES(2,?)",(now(),))
-        con.executemany("INSERT OR IGNORE INTO services VALUES(?,?,?,?,?,?)",
+        if postgres_enabled():
+            con.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id)")
+            con.execute("INSERT INTO schema_migrations VALUES(1,?),(2,?),(3,?) ON CONFLICT DO NOTHING",(now(),now(),now()))
+            con.execute("""CREATE OR REPLACE FUNCTION opspilot_immutable_proposal_parameters() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF ROW(NEW.incident_id,NEW.investigation_id,NEW.action_type,NEW.parameters,NEW.parameter_hash)
+                       IS DISTINCT FROM ROW(OLD.incident_id,OLD.investigation_id,OLD.action_type,OLD.parameters,OLD.parameter_hash) THEN
+                        RAISE EXCEPTION 'proposal parameters are immutable' USING ERRCODE='23514';
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$""")
+            con.execute("DROP TRIGGER IF EXISTS immutable_proposal_parameters ON remediation_proposals")
+            con.execute("CREATE TRIGGER immutable_proposal_parameters BEFORE UPDATE OF incident_id,investigation_id,action_type,parameters,parameter_hash ON remediation_proposals FOR EACH ROW EXECUTE FUNCTION opspilot_immutable_proposal_parameters()")
+        else:
+            con.execute("CREATE TRIGGER IF NOT EXISTS immutable_proposal_parameters BEFORE UPDATE OF incident_id,investigation_id,action_type,parameters,parameter_hash ON remediation_proposals BEGIN SELECT RAISE(ABORT,'proposal parameters are immutable'); END")
+            version=con.execute("SELECT COALESCE(MAX(version),0) FROM schema_migrations").fetchone()[0]
+            if version<1:
+                con.execute("BEGIN IMMEDIATE")
+                session_columns={row["name"] for row in con.execute("PRAGMA table_info(sessions)")}
+                if "actor" not in session_columns: con.execute("ALTER TABLE sessions ADD COLUMN actor TEXT NOT NULL DEFAULT 'Local operator'")
+                if "role" not in session_columns: con.execute("ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'operator'")
+                con.execute("INSERT INTO schema_migrations VALUES(1,?)",(now(),))
+            if version<2:
+                if not con.in_transaction: con.execute("BEGIN IMMEDIATE")
+                con.execute("ALTER TABLE evidence RENAME TO evidence_v1")
+                con.execute("CREATE TABLE evidence(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,kind TEXT NOT NULL,source TEXT NOT NULL,observed_at TEXT NOT NULL,payload TEXT NOT NULL,signal_id TEXT,FOREIGN KEY(run_id) REFERENCES investigations(id) ON DELETE CASCADE)")
+                con.execute("INSERT INTO evidence SELECT id,run_id,kind,source,observed_at,payload,signal_id FROM evidence_v1")
+                con.execute("DROP TABLE evidence_v1")
+                con.execute("CREATE INDEX idx_evidence_run_time ON evidence(run_id,observed_at DESC)")
+                con.execute("INSERT INTO schema_migrations VALUES(2,?)",(now(),))
+            if version<3:
+                session_columns={row["name"] for row in con.execute("PRAGMA table_info(sessions)")}
+                if "user_id" not in session_columns: con.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT REFERENCES users(id)")
+                con.execute("INSERT INTO schema_migrations VALUES(3,?)",(now(),))
+        con.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id,expires_at)")
+        con.executemany("INSERT INTO services VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING",
             [(sid,name,tier,owner,description,dumps(deps)) for sid,name,tier,owner,description,deps in SERVICES])
         for index,scenario in enumerate(scenarios()):
             severity="P1" if index%13==0 else "P2" if index%3==0 else "P3"
-            con.execute("INSERT OR IGNORE INTO scenarios VALUES(?,?,?,?,?,?,?,?,?)",
+            con.execute("INSERT INTO scenarios VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING",
                 (scenario["id"],scenario["title"],severity,scenario["service"],scenario["description"],
                  scenario["expected"],dumps(scenario["plan"]),dumps(scenario["errors"]),scenario["difficulty"]))
 
@@ -430,7 +465,7 @@ def record_observations(con,incident_id,items,provenance,actor,role):
     return normalized
 
 def incident_evidence_records(con,incident_id):
-    rows=con.execute("WITH latest_run AS (SELECT id FROM investigations WHERE incident_id=? ORDER BY started_at DESC,rowid DESC LIMIT 1) SELECT payload FROM incident_observations WHERE incident_id=? UNION ALL SELECT e.payload FROM evidence e JOIN latest_run r ON r.id=e.run_id",
+    rows=con.execute("WITH latest_run AS (SELECT id FROM investigations WHERE incident_id=? ORDER BY started_at DESC,id DESC LIMIT 1) SELECT payload FROM incident_observations WHERE incident_id=? UNION ALL SELECT e.payload FROM evidence e JOIN latest_run r ON r.id=e.run_id",
         (incident_id,incident_id)).fetchall()
     records={}
     for row in rows:
@@ -551,7 +586,7 @@ def _investigate(incident_id,key,actor):
         elif incident["status"] in {"RESOLVED","FAILED"}:
             raise ApiError(409,"incident_closed","Closed incidents cannot be investigated.")
         elif incident["status"]=="AWAITING_APPROVAL":
-            approval=con.execute("SELECT a.id,a.status,a.expires_at FROM approval_requests a JOIN remediation_proposals p ON p.id=a.proposal_id WHERE p.incident_id=? ORDER BY a.created_at DESC,a.rowid DESC LIMIT 1",(incident_id,)).fetchone()
+            approval=con.execute("SELECT a.id,a.status,a.expires_at FROM approval_requests a JOIN remediation_proposals p ON p.id=a.proposal_id WHERE p.incident_id=? ORDER BY a.created_at DESC,a.id DESC LIMIT 1",(incident_id,)).fetchone()
             if not approval or approval["status"] not in {"expired","rejected"} and approval["expires_at"]>now():
                 raise ApiError(409,"approval_still_active","An unexpired approval request must be decided before investigating again.")
             if approval["status"] in {"pending","approved"}:
@@ -562,7 +597,11 @@ def _investigate(incident_id,key,actor):
         if previous: run_id=previous["id"]
         else:
             run_id=ident("INV")
-            con.execute("INSERT INTO investigations VALUES(?,?,?,?,?,?,?)",(run_id,incident_id,key,"running",now(),None,None))
+            for older_run in con.execute("SELECT id,started_at FROM investigations WHERE incident_id=?",(incident_id,)).fetchall():
+                started_at=datetime.fromisoformat(older_run["started_at"].replace("Z","+00:00")).astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00","Z")
+                con.execute("UPDATE investigations SET started_at=? WHERE id=?",(started_at,older_run["id"]))
+            started_at=datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00","Z")
+            con.execute("INSERT INTO investigations VALUES(?,?,?,?,?,?,?)",(run_id,incident_id,key,"running",started_at,None,None))
             add_event(con,incident_id,"investigation.started",{"investigation_id":run_id},actor)
             add_step(con,run_id,"intake","completed",{"incident_id":incident_id,"scope":[incident["service_id"]]})
             audit(con,actor,"operator","investigation.started",run_id,{"incident_id":incident_id,"idempotency_key_hash":hashlib.sha256(key.encode()).hexdigest()})
@@ -590,7 +629,7 @@ def _investigate(incident_id,key,actor):
                 if tool.get("error"): details["error"]=tool["error"]
                 add_step(con,run_id,"tool:"+tool["name"],tool["status"],details)
             for item in evidence:
-                con.execute("INSERT OR IGNORE INTO evidence VALUES(?,?,?,?,?,?,?)",
+                con.execute("INSERT INTO evidence VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING",
                     (item["id"],run_id,item["kind"],item["source"],item["observed_at"],dumps(item),item["signal_id"]))
             add_step(con,run_id,"hypothesis_evaluation","completed",{"evidence_count":len(evidence),"tool_error_count":len(errors)})
             add_step(con,run_id,"recommendation","completed" if result["recommendation"] else "skipped",
@@ -615,12 +654,12 @@ def evaluate_case(scenario):
 def overview():
     with db() as con:
         services=[dict(row) for row in con.execute("SELECT * FROM services ORDER BY tier,name")]
-        incidents=[dict(row) for row in con.execute("SELECT * FROM incidents ORDER BY updated_at DESC,rowid DESC LIMIT 50")]
+        incidents=[dict(row) for row in con.execute("SELECT * FROM incidents ORDER BY updated_at DESC,id DESC LIMIT 50")]
         counts={row["status"]:row["n"] for row in con.execute("SELECT status,COUNT(*) n FROM incidents GROUP BY status")}
         marks=",".join("?" for _ in OPEN_STATES)
         severities={row["severity"]:row["n"] for row in con.execute("SELECT severity,COUNT(*) n FROM incidents WHERE status IN ("+marks+") GROUP BY severity",tuple(OPEN_STATES))}
         active={row["service_id"] for row in con.execute("SELECT DISTINCT service_id FROM incidents WHERE status IN ("+marks+")",tuple(OPEN_STATES))}
-        events=con.execute("SELECT e.*,i.title incident_title,i.severity,i.service_id FROM incident_events e JOIN incidents i ON i.id=e.incident_id ORDER BY e.created_at DESC,e.rowid DESC LIMIT 8").fetchall()
+        events=con.execute("SELECT e.*,i.title incident_title,i.severity,i.service_id FROM incident_events e JOIN incidents i ON i.id=e.incident_id ORDER BY e.created_at DESC,e.id DESC LIMIT 8").fetchall()
         for service in services:
             service["dependencies"]=loads(service.pop("dependencies"),[])
             service["status"]="degraded" if service["id"] in active else "healthy"
@@ -709,8 +748,16 @@ class Handler(BaseHTTPRequestHandler):
     def session(self):
         token=self.token()
         if not token: raise ApiError(401,"authentication_required","Sign in to use the local console.")
-        with db() as con: row=con.execute("SELECT * FROM sessions WHERE token_hash=?",(hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+        with db() as con:
+            row=con.execute("SELECT s.*,u.active user_active,EXISTS(SELECT 1 FROM users) team_mode FROM sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hash=?",
+                (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
         if not row or row["expires_at"]<=now(): raise ApiError(401,"session_expired","Your session expired. Sign in again.")
+        if row["team_mode"] and not row["user_id"]:
+            with db() as con: con.execute("DELETE FROM sessions WHERE token_hash=?",(hashlib.sha256(token.encode()).hexdigest(),))
+            raise ApiError(401,"session_expired","Sign in with your named team account.")
+        if row["user_id"] and not row["user_active"]:
+            with db() as con: con.execute("DELETE FROM sessions WHERE token_hash=?",(hashlib.sha256(token.encode()).hexdigest(),))
+            raise ApiError(401,"session_expired","This team account is disabled. Contact an administrator.")
         return dict(row)
     def csrf(self,session):
         if not hmac.compare_digest(self.headers.get("X-CSRF-Token",""),session["csrf"]):
@@ -725,25 +772,41 @@ class Handler(BaseHTTPRequestHandler):
         if origin and origin.rstrip("/")!=expected.rstrip("/"):
             raise ApiError(403,"origin_rejected","Cross-origin requests are not allowed.")
         address=self.client_address[0]
-        payload=self.body(); require_fields(payload,{"password"},{"password"})
+        payload=self.body(); require_fields(payload,{"password"},{"password","username"})
         password=text_field(payload["password"],"password",1,256)
+        username=None
+        if payload.get("username"):
+            from backend.auth import normalize_username
+            try: username=normalize_username(payload["username"])
+            except ValueError as error: raise ApiError(400,"invalid_username",str(error)) from None
         if not _reserve_login_attempt(address): raise ApiError(429,"login_throttled","Too many sign-in attempts. Try again in a minute.")
-        candidate=hashlib.pbkdf2_hmac("sha256",password.encode(),OPERATOR_SALT,600000)
-        reviewer_candidate=hashlib.pbkdf2_hmac("sha256",password.encode(),APPROVER_SALT,600000)
-        is_operator=hmac.compare_digest(candidate,OPERATOR_HASH)
-        is_approver=hmac.compare_digest(reviewer_candidate,APPROVER_HASH)
-        if not (is_operator or is_approver):
-            raise ApiError(401,"invalid_credentials","That password did not match.")
+        with db() as con:
+            team_mode=bool(con.execute("SELECT 1 FROM users LIMIT 1").fetchone())
+            user=con.execute("SELECT * FROM users WHERE username=? AND active=1",(username,)).fetchone() if username else None
+        user_id=None
+        if team_mode:
+            from backend.auth import verify_password
+            if not user or not verify_password(password,user["password_salt"],user["password_hash"]):
+                verify_password(password,"0"*32,"0"*64) if not user else None
+                raise ApiError(401,"invalid_credentials","Use an active team username and password.")
+            role,actor,user_id=user["role"],user["username"],user["id"]
+        else:
+            if username: raise ApiError(401,"invalid_credentials","Team accounts are not configured on this instance.")
+            candidate=hashlib.pbkdf2_hmac("sha256",password.encode(),OPERATOR_SALT,600000)
+            reviewer_candidate=hashlib.pbkdf2_hmac("sha256",password.encode(),APPROVER_SALT,600000)
+            is_operator=hmac.compare_digest(candidate,OPERATOR_HASH)
+            is_approver=hmac.compare_digest(reviewer_candidate,APPROVER_HASH)
+            if not (is_operator or is_approver): raise ApiError(401,"invalid_credentials","That password did not match.")
+            role="approver" if is_approver else "operator"
+            actor="Local approver" if is_approver else "Local operator"
         _clear_login_attempts(address)
-        role="approver" if is_approver else "operator"
-        actor="Local approver" if is_approver else "Local operator"
         token,csrf_token=secrets.token_urlsafe(32),secrets.token_urlsafe(24)
         start=datetime.now(timezone.utc); end=start+timedelta(seconds=SESSION_SECONDS)
         with db() as con:
             con.execute("DELETE FROM sessions WHERE expires_at<=?",(now(),))
-            con.execute("INSERT INTO sessions(token_hash,csrf,created_at,expires_at,actor,role) VALUES(?,?,?,?,?,?)",
+            con.execute("INSERT INTO sessions(token_hash,csrf,created_at,expires_at,actor,role,user_id) VALUES(?,?,?,?,?,?,?)",
                 (hashlib.sha256(token.encode()).hexdigest(),csrf_token,start.isoformat(timespec="seconds").replace("+00:00","Z"),
-                end.isoformat(timespec="seconds").replace("+00:00","Z"),actor,role))
+                end.isoformat(timespec="seconds").replace("+00:00","Z"),actor,role,user_id))
             audit(con,actor,role,"auth.signed_in",hashlib.sha256(token.encode()).hexdigest(),{"expires_at":end.isoformat(timespec="seconds").replace("+00:00","Z")})
         secure="; Secure" if os.environ.get("OPSPILOT_COOKIE_SECURE")=="true" else ""
         cookie="opspilot_session="+token+"; HttpOnly; SameSite=Strict; Path=/; Max-Age="+str(SESSION_SECONDS)+secure
@@ -753,16 +816,20 @@ class Handler(BaseHTTPRequestHandler):
         if path=="/api/v1/health" and self.command=="GET":
             try:
                 with db() as con: con.execute("SELECT 1").fetchone()
-            except sqlite3.Error:
+            except database_error_types():
                 raise ApiError(503,"not_ready","The incident database is not ready.")
-            checkpoint="postgres" if os.environ.get("OPSPILOT_CHECKPOINT_DATABASE_URL") else "sqlite"
-            return self.send(200,{"status":"ok","mode":"controlled_local_lab","database":"ready","workflow_checkpoint":checkpoint})
+            checkpoint="postgres" if os.environ.get("OPSPILOT_CHECKPOINT_DATABASE_URL") or postgres_enabled() else "sqlite"
+            store="postgres" if postgres_enabled() else "sqlite"
+            return self.send(200,{"status":"ok","mode":"controlled_local_lab","database":"ready","operational_store":store,"workflow_checkpoint":checkpoint})
         if path in {"/","/index.html"} and self.command=="GET": return self.static(WEB/"index.html")
         if path in {"/app.css","/app.js","/favicon.svg"} and self.command=="GET": return self.static(WEB/path.rsplit("/",1)[-1])
         if not path.startswith("/api/v1/"): raise ApiError(404,"not_found","Route not found.")
         if path=="/api/v1/webhooks/alerts":
             if self.command!="POST": raise ApiError(405,"method_not_allowed","Use POST for the authenticated monitoring webhook.")
             return self.receive_alert()
+        if path=="/api/v1/webhooks/alertmanager":
+            if self.command!="POST": raise ApiError(405,"method_not_allowed","Use POST for the authenticated Alertmanager webhook.")
+            return self.receive_alertmanager()
         if path=="/api/v1/auth/session":
             if self.command=="POST": return self.login()
             if self.command=="GET":
@@ -854,13 +921,17 @@ class Handler(BaseHTTPRequestHandler):
             row=dict(con.execute("SELECT * FROM incidents WHERE id=?",(iid,)).fetchone())
         self.send(201,{"incident":row,"evidence_received":len(evidence)})
     def receive_alert(self):
+        self.webhook_auth()
+        status,payload=self.ingest_alert(self.body())
+        self.send(status,payload)
+    def webhook_auth(self):
         configured=os.environ.get("OPSPILOT_ALERT_WEBHOOK_TOKEN","")
         if len(configured)<32: raise ApiError(503,"webhook_disabled","Set a 32-character OPSPILOT_ALERT_WEBHOOK_TOKEN to enable monitoring intake.")
         authorization=self.headers.get("Authorization","")
         supplied=authorization[7:].strip() if authorization.startswith("Bearer ") else ""
         if not hmac.compare_digest(supplied.encode(),configured.encode()):
             raise ApiError(401,"webhook_authentication_required","A valid monitoring webhook credential is required.")
-        payload=self.body()
+    def ingest_alert(self,payload,source="alert_webhook",actor="Monitoring webhook",occurred_at=None):
         require_fields(payload,{"title","severity","service_id","description","correlation_id"},
             {"title","severity","service_id","description","correlation_id","owner","evidence"})
         title=text_field(payload["title"],"title",8,120)
@@ -878,17 +949,46 @@ class Handler(BaseHTTPRequestHandler):
                 if not hmac.compare_digest(previous["payload_hash"],payload_hash):
                     raise ApiError(409,"alert_key_conflict","This correlation ID was already received with a different payload.")
                 con.commit()
-                return self.send(200,{"incident":dict(previous),"alert":{"id":previous["alert_id"],"correlation_id":correlation},"deduplicated":True})
+                return 200,{"incident":dict(previous),"alert":{"id":previous["alert_id"],"correlation_id":correlation},"deduplicated":True}
             if not con.execute("SELECT 1 FROM services WHERE id=?",(service,)).fetchone(): raise ApiError(400,"unknown_service","Choose a service from the local registry.")
-            incident_id=add_incident(con,title,severity,service,description,owner,"alert_webhook",correlation_id=correlation,actor="Monitoring webhook")
-            evidence=record_observations(con,incident_id,payload.get("evidence",[]),"authenticated-alert-webhook","Monitoring webhook","webhook")
+            incident_id=add_incident(con,title,severity,service,description,owner,source,correlation_id=correlation,actor=actor)
+            if occurred_at:
+                con.execute("UPDATE incidents SET created_at=? WHERE id=?",(occurred_at,incident_id))
+            evidence=record_observations(con,incident_id,payload.get("evidence",[]),"authenticated-alert-webhook",actor,"webhook")
             alert_id,stamp=ident("ALT"),now()
             con.execute("INSERT INTO alerts VALUES(?,?,?,?,?)",(alert_id,incident_id,correlation,payload_hash,stamp))
-            add_event(con,incident_id,"alert.received",{"alert_id":alert_id,"correlation_id":correlation,"payload_hash":payload_hash},"Monitoring webhook")
-            audit(con,"Monitoring webhook","webhook","alert.received",incident_id,{"alert_id":alert_id,"payload_hash":payload_hash})
+            add_event(con,incident_id,"alert.received",{"alert_id":alert_id,"correlation_id":correlation,"payload_hash":payload_hash,"source":source,"occurred_at":occurred_at},actor)
+            audit(con,actor,"webhook","alert.received",incident_id,{"alert_id":alert_id,"payload_hash":payload_hash,"source":source,"occurred_at":occurred_at})
             incident=dict(con.execute("SELECT * FROM incidents WHERE id=?",(incident_id,)).fetchone())
             con.commit()
-        self.send(201,{"incident":incident,"alert":{"id":alert_id,"correlation_id":correlation,"received_at":stamp},"evidence_received":len(evidence),"deduplicated":False})
+        return 201,{"incident":incident,"alert":{"id":alert_id,"correlation_id":correlation,"received_at":stamp},"evidence_received":len(evidence),"deduplicated":False}
+    def receive_alertmanager(self):
+        from backend.alertmanager import normalize_group
+        self.webhook_auth()
+        group=normalize_group(self.body())
+        incidents=[]
+        for alert in group["firing"]:
+            payload={key:alert[key] for key in ("title","severity","service_id","description","correlation_id","owner","evidence")}
+            status,result=self.ingest_alert(payload,"alertmanager_webhook","Alertmanager",alert["starts_at"])
+            incidents.append({"http_status":status,**result})
+        resolved=[]
+        for alert in group["resolved"]:
+            with db() as con:
+                incident=con.execute("SELECT i.id,i.status FROM alerts a JOIN incidents i ON i.id=a.incident_id WHERE a.source_key=?",
+                    (alert["correlation_id"],)).fetchone()
+                if incident:
+                    details={"source":"Alertmanager","fingerprint":alert["fingerprint"],"ends_at":alert["ends_at"]}
+                    serialized=dumps(details)
+                    seen=con.execute("SELECT 1 FROM incident_events WHERE incident_id=? AND kind='alert.source_resolved' AND details=?",
+                        (incident["id"],serialized)).fetchone()
+                    if not seen:
+                        add_event(con,incident["id"],"alert.source_resolved",details,"Alertmanager")
+                        audit(con,"Alertmanager","webhook","alert.source_resolved",incident["id"],details)
+                    resolved.append({"incident_id":incident["id"],"source_status":"resolved","opspilot_status":incident["status"]})
+                else:
+                    resolved.append({"correlation_id":alert["correlation_id"],"source_status":"unmatched"})
+        return self.send(200,{"accepted":len(incidents)+len(resolved),"incidents":incidents,"resolved_sources":resolved,
+            "note":"An Alertmanager resolution is recorded for review; it does not resolve the OpsPilot incident."})
     def simulation(self,payload,session):
         require_fields(payload,{"scenario_id"},{"scenario_id","owner"})
         scenario_id=text_field(payload["scenario_id"],"scenario_id",4,80)
@@ -912,7 +1012,7 @@ class Handler(BaseHTTPRequestHandler):
             if not incident: raise ApiError(404,"incident_not_found","Incident not found.")
             if incident["status"] not in {"INVESTIGATING","AWAITING_APPROVAL"}:
                 raise ApiError(409,"invalid_proposal_state","A remediation proposal requires an active investigation.")
-            run=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,rowid DESC LIMIT 1",(iid,)).fetchone()
+            run=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,id DESC LIMIT 1",(iid,)).fetchone()
             if not run or run["status"]!="completed": raise ApiError(409,"investigation_required","Complete a read-only investigation before proposing an action.")
             result=loads(run["result"],{})
             if result.get("status")!="supported" or not result.get("cause_id"):
@@ -962,7 +1062,7 @@ class Handler(BaseHTTPRequestHandler):
             effective="CASE WHEN a.status IN ('pending','approved') AND a.expires_at<=? THEN 'expired' ELSE a.status END"
             condition="" if status=="all" else "WHERE "+effective+"=?"
             args=(expiry,) if status=="all" else (expiry,expiry,status)
-            rows=con.execute("SELECT a.id approval_id,"+effective+" approval_status,a.expires_at,a.created_at approval_created_at,a.approved_by,a.decided_at,a.decision_note,p.id proposal_id,p.incident_id,p.investigation_id,p.action_type,p.parameters,p.parameter_hash,p.reason,p.risk,p.proposed_by,p.created_at proposal_created_at,i.title incident_title,i.severity,i.service_id,i.status incident_status,r.result investigation_result FROM approval_requests a JOIN remediation_proposals p ON p.id=a.proposal_id JOIN incidents i ON i.id=p.incident_id JOIN investigations r ON r.id=p.investigation_id "+condition+" ORDER BY a.created_at DESC,a.rowid DESC LIMIT 100",args).fetchall()
+            rows=con.execute("SELECT a.id approval_id,"+effective+" approval_status,a.expires_at,a.created_at approval_created_at,a.approved_by,a.decided_at,a.decision_note,p.id proposal_id,p.incident_id,p.investigation_id,p.action_type,p.parameters,p.parameter_hash,p.reason,p.risk,p.proposed_by,p.created_at proposal_created_at,i.title incident_title,i.severity,i.service_id,i.status incident_status,r.result investigation_result FROM approval_requests a JOIN remediation_proposals p ON p.id=a.proposal_id JOIN incidents i ON i.id=p.incident_id JOIN investigations r ON r.id=p.investigation_id "+condition+" ORDER BY a.created_at DESC,a.id DESC LIMIT 100",args).fetchall()
         values=[]
         for row in rows:
             item=dict(row); item["parameters"]=loads(item["parameters"],{})
@@ -1070,7 +1170,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send(201,{"evaluation":{"id":eid,"started_at":started,"completed_at":completed,"case_count":len(cases),
             "accuracy":report["summary"]["accuracy"],"inconclusive":inconclusive,"report":report}})
     def evaluations(self):
-        with db() as con: rows=con.execute("SELECT * FROM evaluations ORDER BY started_at DESC,rowid DESC LIMIT 20").fetchall()
+        with db() as con: rows=con.execute("SELECT * FROM evaluations ORDER BY started_at DESC,id DESC LIMIT 20").fetchall()
         self.send(200,{"evaluations":[{"id":r["id"],"started_at":r["started_at"],"completed_at":r["completed_at"],
             "case_count":r["case_count"],"accuracy":r["accuracy"],"inconclusive":r["inconclusive"],"report":loads(r["report"],{})} for r in rows]})
     def list_incidents(self,query):
@@ -1086,12 +1186,12 @@ class Handler(BaseHTTPRequestHandler):
         if search: where.append("(i.title LIKE ? OR i.description LIKE ? OR i.id LIKE ?)"); args.extend(["%"+search+"%"]*3)
         clause=" WHERE "+" AND ".join(where) if where else ""
         with db() as con:
-            rows=con.execute("SELECT i.* FROM incidents i"+clause+" ORDER BY updated_at DESC,i.rowid DESC LIMIT ? OFFSET ?",(*args,limit,offset)).fetchall()
+            rows=con.execute("SELECT i.* FROM incidents i"+clause+" ORDER BY updated_at DESC,i.id DESC LIMIT ? OFFSET ?",(*args,limit,offset)).fetchall()
             total=con.execute("SELECT COUNT(*) FROM incidents i"+clause,args).fetchone()[0]
             result=[]
             for row in rows:
                 item=dict(row)
-                run=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,rowid DESC LIMIT 1",(row["id"],)).fetchone()
+                run=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,id DESC LIMIT 1",(row["id"],)).fetchone()
                 item["latest_investigation"]={"id":run["id"],"status":run["status"],"started_at":run["started_at"],
                     "completed_at":run["completed_at"],"result":loads(run["result"],{})} if run else None
                 result.append(item)
@@ -1103,26 +1203,26 @@ class Handler(BaseHTTPRequestHandler):
     def incident(self,iid):
         with db() as con:
             row=dict(self.incident_row(con,iid))
-            run=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,rowid DESC LIMIT 1",(iid,)).fetchone()
+            run=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,id DESC LIMIT 1",(iid,)).fetchone()
             row["latest_investigation"]={"id":run["id"],"status":run["status"],"started_at":run["started_at"],
                 "completed_at":run["completed_at"],"result":loads(run["result"],{})} if run else None
         self.send(200,{"incident":row})
     def latest(self,iid):
         with db() as con:
             self.incident_row(con,iid)
-            row=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,rowid DESC LIMIT 1",(iid,)).fetchone()
+            row=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,id DESC LIMIT 1",(iid,)).fetchone()
         if not row: raise ApiError(404,"investigation_not_found","Start an investigation first.")
         return {"id":row["id"],"status":row["status"],"result":loads(row["result"],{}),"started_at":row["started_at"],"completed_at":row["completed_at"]}
     def investigations(self,iid):
         with db() as con:
             self.incident_row(con,iid)
-            rows=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,rowid DESC LIMIT 50",(iid,)).fetchall()
+            rows=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,id DESC LIMIT 50",(iid,)).fetchall()
         self.send(200,{"investigations":[{"id":r["id"],"status":r["status"],"started_at":r["started_at"],"completed_at":r["completed_at"],"result":loads(r["result"],{})} for r in rows]})
     def incident_events(self,iid):
         with db() as con:
             self.incident_row(con,iid)
-            events=con.execute("SELECT * FROM incident_events WHERE incident_id=? ORDER BY created_at DESC,rowid DESC LIMIT 100",(iid,)).fetchall()
-            comments=con.execute("SELECT * FROM comments WHERE incident_id=? ORDER BY created_at DESC,rowid DESC LIMIT 100",(iid,)).fetchall()
+            events=con.execute("SELECT * FROM incident_events WHERE incident_id=? ORDER BY created_at DESC,id DESC LIMIT 100",(iid,)).fetchall()
+            comments=con.execute("SELECT * FROM comments WHERE incident_id=? ORDER BY created_at DESC,id DESC LIMIT 100",(iid,)).fetchall()
         result=[{"id":r["id"],"type":"incident","kind":r["kind"],"actor":r["actor"],"created_at":r["created_at"],"details":loads(r["details"],{})} for r in events]
         result += [{"id":r["id"],"type":"comment","kind":"incident.comment","actor":r["actor"],"created_at":r["created_at"],"details":{"body":r["body"]}} for r in comments]
         self.send(200,{"events":sorted(result,key=lambda item:item["created_at"],reverse=True)[:100]})
@@ -1147,12 +1247,12 @@ class Handler(BaseHTTPRequestHandler):
     def report(self,iid):
         with db() as con:
             incident=dict(self.incident_row(con,iid))
-            run=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,rowid DESC LIMIT 1",(iid,)).fetchone()
+            run=con.execute("SELECT * FROM investigations WHERE incident_id=? ORDER BY started_at DESC,id DESC LIMIT 1",(iid,)).fetchone()
             events=con.execute("SELECT * FROM incident_events WHERE incident_id=? ORDER BY created_at",(iid,)).fetchall()
             notes=con.execute("SELECT * FROM comments WHERE incident_id=? ORDER BY created_at",(iid,)).fetchall()
             evidence=incident_evidence_records(con,iid)
             steps=con.execute("SELECT * FROM run_events WHERE run_id=? ORDER BY created_at",(run["id"],)).fetchall() if run else []
-            proposals=con.execute("SELECT p.*,a.id approval_id,a.status approval_status,a.expires_at,a.approved_by,a.decided_at,a.decision_note,x.id execution_id,x.status execution_status,x.started_at execution_started_at,x.completed_at execution_completed_at,x.result execution_result,v.id verification_id,v.passed verification_passed,v.checked_at verification_checked_at,v.checks verification_checks,r.result investigation_result FROM remediation_proposals p LEFT JOIN approval_requests a ON a.proposal_id=p.id LEFT JOIN action_executions x ON x.proposal_id=p.id LEFT JOIN verification_results v ON v.execution_id=x.id JOIN investigations r ON r.id=p.investigation_id WHERE p.incident_id=? ORDER BY p.created_at DESC,p.rowid DESC",(iid,)).fetchall()
+            proposals=con.execute("SELECT p.*,a.id approval_id,a.status approval_status,a.expires_at,a.approved_by,a.decided_at,a.decision_note,x.id execution_id,x.status execution_status,x.started_at execution_started_at,x.completed_at execution_completed_at,x.result execution_result,v.id verification_id,v.passed verification_passed,v.checked_at verification_checked_at,v.checks verification_checks,r.result investigation_result FROM remediation_proposals p LEFT JOIN approval_requests a ON a.proposal_id=p.id LEFT JOIN action_executions x ON x.proposal_id=p.id LEFT JOIN verification_results v ON v.execution_id=x.id JOIN investigations r ON r.id=p.investigation_id WHERE p.incident_id=? ORDER BY p.created_at DESC,p.id DESC",(iid,)).fetchall()
             action_history=[]
             for row in proposals:
                 item=dict(row); item["parameters"]=loads(item["parameters"],{})
@@ -1226,25 +1326,36 @@ def main():
         if value and len(value)<16: raise SystemExit(name+" must be at least 16 characters.")
     webhook_token=os.environ.get("OPSPILOT_ALERT_WEBHOOK_TOKEN")
     if webhook_token and len(webhook_token)<32: raise SystemExit("OPSPILOT_ALERT_WEBHOOK_TOKEN must be at least 32 characters.")
-    if hmac.compare_digest(OPERATOR_PASSWORD.encode(),APPROVER_PASSWORD.encode()):
-        raise SystemExit("Operator and approver credentials must be different.")
     if os.environ.get("OPSPILOT_PUBLIC_ORIGIN","").startswith("https://") and os.environ.get("OPSPILOT_COOKIE_SECURE")!="true":
         raise SystemExit("Set OPSPILOT_COOKIE_SECURE=true when OPSPILOT_PUBLIC_ORIGIN uses HTTPS.")
     try:
         import ipaddress
         remote=not ipaddress.ip_address(HOST).is_loopback
     except ValueError: raise SystemExit("OPSPILOT_HOST must be an IPv4 or IPv6 address.")
-    if remote and (os.environ.get("OPSPILOT_ALLOW_REMOTE")!="true" or not os.environ.get("OPSPILOT_PASSWORD") or not os.environ.get("OPSPILOT_APPROVER_PASSWORD") or not os.environ.get("OPSPILOT_PUBLIC_ORIGIN","").startswith("https://") or os.environ.get("OPSPILOT_COOKIE_SECURE")!="true"):
-        raise SystemExit("Non-loopback binding requires explicit remote opt-in, two configured credentials, an HTTPS public origin, and Secure cookies.")
+    try:
+        initialize()
+        with db() as con:
+            team_mode=bool(con.execute("SELECT 1 FROM users LIMIT 1").fetchone())
+            users=con.execute("SELECT DISTINCT role FROM users WHERE active=1").fetchall()
+    except database_error_types():
+        raise SystemExit("The configured incident database could not be initialized.") from None
+    roles={row["role"] for row in users}
+    if not team_mode and hmac.compare_digest(OPERATOR_PASSWORD.encode(),APPROVER_PASSWORD.encode()):
+        raise SystemExit("Operator and approver credentials must be different.")
+    if remote and (os.environ.get("OPSPILOT_ALLOW_REMOTE")!="true" or not postgres_enabled()
+        or not {"operator","approver"}.issubset(roles) or not os.environ.get("OPSPILOT_PUBLIC_ORIGIN","").startswith("https://")
+        or os.environ.get("OPSPILOT_COOKIE_SECURE")!="true"):
+        raise SystemExit("Non-loopback binding requires remote opt-in, PostgreSQL, active named operator and approver accounts, an HTTPS origin, and Secure cookies.")
     print("OpsPilot listening: http://"+HOST+":"+str(PORT) if not remote else "OpsPilot listening: "+os.environ["OPSPILOT_PUBLIC_ORIGIN"],flush=True)
-    if os.environ.get("OPSPILOT_PASSWORD"): print("Operator sign-in uses OPSPILOT_PASSWORD.",flush=True)
+    if team_mode:
+        print("Named operator and approver accounts are enabled.",flush=True)
     else:
-        print("One-time local operator password: "+OPERATOR_PASSWORD,flush=True)
-    if os.environ.get("OPSPILOT_APPROVER_PASSWORD"): print("Approval sign-in uses OPSPILOT_APPROVER_PASSWORD.",flush=True)
-    else:
-        print("One-time local approver password: "+APPROVER_PASSWORD,flush=True)
-    if not os.environ.get("OPSPILOT_PASSWORD") or not os.environ.get("OPSPILOT_APPROVER_PASSWORD"):
-        print("Keep this terminal open; generated passwords are not saved to disk.",flush=True)
+        if os.environ.get("OPSPILOT_PASSWORD"): print("Operator sign-in uses OPSPILOT_PASSWORD.",flush=True)
+        else: print("One-time local operator password: "+OPERATOR_PASSWORD,flush=True)
+        if os.environ.get("OPSPILOT_APPROVER_PASSWORD"): print("Approval sign-in uses OPSPILOT_APPROVER_PASSWORD.",flush=True)
+        else: print("One-time local approver password: "+APPROVER_PASSWORD,flush=True)
+        if not os.environ.get("OPSPILOT_PASSWORD") or not os.environ.get("OPSPILOT_APPROVER_PASSWORD"):
+            print("Keep this terminal open; generated passwords are not saved to disk.",flush=True)
     print("Simulated incidents and actions only. No production service targets are configured.",flush=True)
     import uvicorn
     uvicorn.run("backend.asgi:app",host=HOST,port=PORT,proxy_headers=False,workers=1,log_level="info")

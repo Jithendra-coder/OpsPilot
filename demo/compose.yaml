@@ -1,0 +1,183 @@
+name: opspilot-demo
+
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_DB: opspilot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run python -m scripts.demo up to create local credentials}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d opspilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [lab]
+    restart: unless-stopped
+
+  checkout-demo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    networks: [lab]
+    restart: unless-stopped
+
+  otel-collector:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.163.2
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "components"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 10s
+    networks: [lab]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=24h
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      alertmanager:
+        condition: service_started
+      checkout-demo:
+        condition: service_started
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks: [lab]
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager"]
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ../.local-demo/alertmanager-token:/run/secrets/opspilot-alert-token:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks: [lab]
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.7.9
+    command: ["-config.file=/etc/loki/loki.yaml", "-target=all"]
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_data:/loki
+    networks: [lab]
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:3.1.1
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    networks: [lab]
+    restart: unless-stopped
+
+  opspilot-bootstrap:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    entrypoint: ["python", "-m", "scripts.demo_accounts"]
+    environment:
+      OPSPILOT_HOST: 127.0.0.1
+      OPSPILOT_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/opspilot
+      OPSPILOT_OPERATOR_USERNAME: ${OPSPILOT_OPERATOR_USERNAME:?Missing operator username}
+      OPSPILOT_OPERATOR_PASSWORD: ${OPSPILOT_OPERATOR_PASSWORD:?Run python -m scripts.demo up to create local credentials}
+      OPSPILOT_APPROVER_USERNAME: ${OPSPILOT_APPROVER_USERNAME:?Missing approver username}
+      OPSPILOT_APPROVER_PASSWORD: ${OPSPILOT_APPROVER_PASSWORD:?Run python -m scripts.demo up to create local credentials}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [lab]
+    restart: "no"
+
+  opspilot:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      OPSPILOT_HOST: 127.0.0.1
+      OPSPILOT_PORT: 8765
+      OPSPILOT_DATA_DIR: /data
+      OPSPILOT_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/opspilot
+      OPSPILOT_CHECKPOINT_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/opspilot
+      OPSPILOT_PUBLIC_ORIGIN: https://localhost:8765
+      OPSPILOT_COOKIE_SECURE: "true"
+      OPSPILOT_ALERT_WEBHOOK_TOKEN: ${OPSPILOT_ALERT_WEBHOOK_TOKEN:?Run python -m scripts.demo up to create local credentials}
+      OPSPILOT_PROMETHEUS_URL: http://prometheus:9090
+      OPSPILOT_PROMETHEUS_QUERIES: '{"metric.db_pool_saturated":"checkout_db_pool_utilization{service_id=\"checkout\"} > 0.9"}'
+      OPSPILOT_LOKI_URL: http://loki:3100
+      OPSPILOT_LOKI_QUERIES: '{"log.db_acquire_timeout":"Connection acquisition timed out"}'
+      OPSPILOT_TEMPO_URL: http://tempo:3200
+      OPSPILOT_TEMPO_QUERIES: '{"trace.db_wait_high":"span.db.system.name = \"postgresql\""}'
+      OPSPILOT_PROVIDER_HTTP_HOSTS: prometheus,loki,tempo
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+    volumes:
+      - opspilot_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      opspilot-bootstrap:
+        condition: service_completed_successfully
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8765:443"
+    networks: [lab]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.11.7-alpine
+    network_mode: service:opspilot
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [opspilot]
+    restart: unless-stopped
+
+networks:
+  lab:
+    internal: true
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  alertmanager_data:
+  loki_data:
+  tempo_data:
+  opspilot_data:
+  caddy_data:
+  caddy_config:
