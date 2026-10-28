@@ -79,6 +79,7 @@ def wait_for_app() -> None:
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context))
     deadline = time.monotonic() + 90
     last_health = None
+    last_error = None
     while time.monotonic() < deadline:
         try:
             with opener.open("https://localhost:8765/api/v1/health", timeout=3) as response:
@@ -86,10 +87,10 @@ def wait_for_app() -> None:
             last_health = health
             if health.get("status") == "ok" and health.get("database") == "ready":
                 return
-        except (OSError, urllib.error.URLError, ValueError):
-            pass
+        except (OSError, urllib.error.URLError, ValueError) as error:
+            last_error = type(error).__name__ + ": " + str(error)
         time.sleep(1)
-    raise SystemExit("OpsPilot did not become ready; last health response: " + json.dumps(last_health, sort_keys=True))
+    raise SystemExit("OpsPilot did not become ready; last health response: " + json.dumps(last_health, sort_keys=True) + "; last probe error: " + str(last_error))
 
 
 def verify_live_path() -> None:
