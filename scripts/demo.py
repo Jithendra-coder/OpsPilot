@@ -66,11 +66,13 @@ def compose(*arguments: str, check: bool = True) -> subprocess.CompletedProcess:
 
 def set_fault(enabled: bool) -> None:
     url = "http://127.0.0.1:8081/admin/failure/" + ("on" if enabled else "off")
-    request = urllib.request.Request(url, data=b"", method="POST")
+    code = (
+        "import urllib.request; "
+        f"print(urllib.request.urlopen(urllib.request.Request({url!r}, data=b'', method='POST'), timeout=5).read().decode())"
+    )
     try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            print(response.read().decode("utf-8"))
-    except (OSError, urllib.error.URLError) as error:
+        compose("exec", "-T", "checkout-demo", "python", "-c", code)
+    except subprocess.CalledProcessError as error:
         raise SystemExit("The checkout demo is not ready; run `python -m scripts.demo up` first.") from error
 
 
@@ -96,13 +98,26 @@ def wait_for_app() -> None:
 def verify_live_path() -> None:
     values = dict(line.split("=", 1) for line in ENV_FILE.read_text(encoding="utf-8").splitlines() if "=" in line)
     headers = {"Origin": "https://localhost:8765"}
+    local_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     set_fault(False)
     deadline = time.monotonic() + 40
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen("http://127.0.0.1:9093/api/v2/alerts", timeout=5) as response:
-                alerts = json.loads(response.read())
-            if not any(item.get("status", {}).get("state") == "active" and item.get("labels", {}).get("service_id") == "checkout" for item in alerts):
+            with local_opener.open("http://127.0.0.1:9093/api/v2/alerts", timeout=5) as response:
+                alertmanager_alerts = json.loads(response.read())
+            with local_opener.open("http://127.0.0.1:9090/api/v1/alerts", timeout=5) as response:
+                prometheus_alerts = json.loads(response.read())["data"]["alerts"]
+            pending_at_source = any(
+                item.get("labels", {}).get("service_id") == "checkout"
+                and item.get("state") in {"pending", "firing"}
+                for item in prometheus_alerts
+            )
+            active_at_receiver = any(
+                item.get("status", {}).get("state") == "active"
+                and item.get("labels", {}).get("service_id") == "checkout"
+                for item in alertmanager_alerts
+            )
+            if not pending_at_source and not active_at_receiver:
                 break
         except (OSError, urllib.error.URLError, ValueError):
             pass

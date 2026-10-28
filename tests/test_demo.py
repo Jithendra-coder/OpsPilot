@@ -54,6 +54,14 @@ class DemoCredentialTests(unittest.TestCase):
                 self.assertGreaterEqual(len(token), 32)
                 self.assertEqual(token, values["OPSPILOT_ALERT_WEBHOOK_TOKEN"])
 
+    def test_fault_control_stays_inside_the_isolated_checkout_container(self):
+        for enabled, state in ((True, "on"), (False, "off")):
+            with self.subTest(state=state), patch.object(demo, "compose") as compose:
+                demo.set_fault(enabled)
+            args = compose.call_args.args
+            self.assertEqual(args[:3], ("exec", "-T", "checkout-demo"))
+            self.assertIn("/admin/failure/" + state, args[-1])
+
     def test_up_recreates_compose_services_without_removing_volumes(self):
         with patch.object(demo, "ensure_local_credentials"), patch.object(demo, "wait_for_app"), \
                 patch.object(demo, "compose") as compose:
