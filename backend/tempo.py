@@ -90,8 +90,10 @@ def collect(incident, service_id, allowed, start_time=None, end_time=None, *, li
                 if len(traces) > min(25, limit - len(records)):
                     raise ValueError("too many Tempo traces")
                 for trace in traces:
-                    if not isinstance(trace, dict) or not re.fullmatch(r"[0-9a-fA-F]{32}", str(trace.get("traceID", ""))):
+                    trace_id = str(trace.get("traceID", "")) if isinstance(trace, dict) else ""
+                    if not re.fullmatch(r"[0-9a-fA-F]{1,32}", trace_id) or int(trace_id, 16) == 0:
                         raise ValueError("invalid Tempo trace")
+                    trace_id = trace_id.zfill(32).lower()
                     try:
                         stamp = datetime.fromtimestamp(int(trace["startTimeUnixNano"]) / 1_000_000_000, timezone.utc)
                         spans = trace.get("spanSet", {}).get("spans", [])
@@ -106,7 +108,7 @@ def collect(incident, service_id, allowed, start_time=None, end_time=None, *, li
                         "kind": "traces", "service_id": service, "source": "tempo:" + signal,
                         "observation": "Configured Tempo trace condition matched; duration " + str(round(duration, 3)) + " ms.",
                         "signal_id": signal, "severity": "error", "observed_at": stamp.isoformat().replace("+00:00", "Z"),
-                        "provenance": "tempo-search-api", "trace_id": trace["traceID"]})
+                        "provenance": "tempo-search-api", "trace_id": trace_id})
                     if len(records) >= min(limit, MAX_RESULTS):
                         break
     except (httpx.HTTPError, ValueError, TypeError, KeyError, AttributeError):

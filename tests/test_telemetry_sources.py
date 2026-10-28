@@ -114,7 +114,7 @@ class TempoAdapterTests(unittest.TestCase):
             self.assertLessEqual(int(request.url.params["start"]), int(self.observed.timestamp()))
             self.assertEqual(request.url.params["limit"], "25")
             return httpx.Response(200, json={"traces": [{
-                "traceID": "a" * 32,
+                "traceID": "a" * 31,
                 "startTimeUnixNano": str(int(self.observed.timestamp() * 1_000_000_000)),
                 "spanSet": {"spans": [{"durationNanos": "123456000"}]},
             }]})
@@ -122,9 +122,20 @@ class TempoAdapterTests(unittest.TestCase):
         records = tempo.collect(self.incident, None, {"checkout", "postgres"}, transport=httpx.MockTransport(respond))
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["signal_id"], "trace.db_wait_high")
-        self.assertEqual(records[0]["trace_id"], "a" * 32)
+        self.assertEqual(records[0]["trace_id"], "0" + "a" * 31)
         self.assertEqual(records[0]["provenance"], "tempo-search-api")
         self.assertIn("123.456 ms", records[0]["observation"])
+
+    def test_rejects_zero_tempo_trace_id(self):
+        with self.assertRaises(app.ApiError) as error:
+            tempo.collect(self.incident, None, {"checkout"}, transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json={"traces": [{
+                    "traceID": "0" * 32,
+                    "startTimeUnixNano": str(int(self.observed.timestamp() * 1_000_000_000)),
+                    "spanSet": {"spans": [{"durationNanos": "1"}]},
+                }]})
+            ))
+        self.assertEqual(error.exception.code, "tempo_unavailable")
 
     def test_rejects_unsafe_query_and_out_of_scope_trace_ids(self):
         with patch.dict(os.environ, {"OPSPILOT_TEMPO_QUERIES": '{"trace.db_wait_high":"{} || true"}'}):
